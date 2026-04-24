@@ -1,0 +1,183 @@
+---
+name: runway-prd-analysis
+description: Reads a xuecheng PRD, clarifies ambiguities through structured questioning, and produces a structured requirements spec (with AC table) uploaded back to xuecheng. Invoke this skill whenever the user provides a km.sankuai.com link and wants to understand, analyze, or clarify requirements — even if they just paste a link without explanation. Also trigger when the user says "分析需求", "读一下PRD", "帮我梳理需求", or "produce requirements spec". Do NOT skip this skill just because the PRD looks simple — ambiguity clarification is always valuable.
+version: 0.1.0
+---
+
+# PRD Analysis
+
+Read a xuecheng PRD document, clarify ambiguities through structured questioning, produce a requirements spec, and upload it to xuecheng.
+
+<HARD-GATE>
+Do not proceed to runway-tech-design until the requirements spec is confirmed by the user and uploaded to xuecheng.
+</HARD-GATE>
+
+## When to Use
+
+Activate when the user provides a xuecheng PRD link and asks for requirements analysis. This is Stage 1 of the dev workflow.
+
+## Process
+
+```
+citadel getMarkdown → Ambiguity Score → [>20%: Socratic Q&A] → Spec → User Confirm → citadel createDocument → return control to runway orchestrator
+                                             ↓
+                                  [still >20% after max rounds]
+                                             ↓
+                              Human decision on unresolved items
+```
+
+## Step 1: Read PRD + Quick Code Scan
+
+```bash
+oa-skills citadel getMarkdown --contentId <id-from-url> --mis <mis>
+```
+
+If this command fails:
+- Ask the user to paste the PRD content directly into chat.
+- Continue with pasted content as if it were read from xuecheng.
+- Record `prd_content_id: manual-input` in the workflow state.
+
+Extract: background/goal, functional description, user scenarios, constraints, acceptance criteria.
+
+**After reading the PRD, before asking any clarification questions, do a 5-minute code scan:**
+
+Identify which interfaces/services the PRD touches, then read their signatures:
+```bash
+# Find relevant service files mentioned in PRD
+grep -rn "Service\|TService\|Gateway" --include="*.java" -l | head -20
+# Read key method signatures to understand actual interface ownership
+```
+
+This prevents asking questions that the code already answers (e.g., "which interface owns this feature?"). Only ask questions that are **business decisions** the code cannot answer.
+
+## Step 2: Ambiguity Scoring
+
+Score three dimensions (0–100, 100 = fully clear):
+
+| Dimension | Weight | Question |
+|-----------|--------|----------|
+| Goal Clarity | 40% | Can the problem be stated in one sentence? |
+| Constraint Clarity | 30% | Are technical/business constraints explicit? |
+| Success Criteria | 30% | Can acceptance tests be written from this? |
+
+```
+ambiguity = 1 - (goal×0.40 + constraints×0.30 + criteria×0.30) / 100
+```
+
+- ambiguity > 20% → proceed to Step 3
+- ambiguity ≤ 20% → skip to Step 4
+
+### Scoring rubric
+
+Use the same anchors for all three dimensions so scoring is consistent:
+
+| Score | Meaning |
+|------:|---------|
+| 20 | Mostly unclear. Multiple plausible interpretations remain. |
+| 50 | Partially clear. Core intent is visible, but important gaps block confident delivery. |
+| 80 | Clear enough to implement with only minor follow-up questions. |
+| 100 | Unambiguous. A reviewer could derive the same scope and acceptance tests independently. |
+
+When scoring, record 1–2 sentences explaining why the dimension received that score. The explanation should point to evidence in the PRD or identify the missing information.
+
+## Step 3: Socratic Clarification (only if ambiguity > 20%)
+
+Ask **one question at a time**. Prefer multiple-choice. Target the lowest-scoring dimension each round. Recompute score every 3 rounds. Stop when ambiguity ≤ 20% or after 20 rounds.
+
+See `references/clarification-questions.md` for question templates by dimension.
+
+### Clarification rules
+
+- Ask exactly one question per turn.
+- Do not ask about implementation details — that is runway-tech-design's job.
+- If the answer changes scope, update the current draft before asking the next question.
+- Keep a running list of:
+  - **Confirmed** — facts stated in the PRD or explicitly confirmed by the user
+  - **Assumed** — working assumptions needed to make the spec coherent
+  - **Open** — unresolved questions that still need an owner or later decision
+
+### If ambiguity remains high after max rounds
+
+If ambiguity is still > 20% after 20 rounds:
+- Stop asking more questions.
+- Produce the best current draft with `Confirmed / Assumed / Open` sections filled in.
+- Clearly mark the remaining blockers.
+- Ask the user to choose one of these actions:
+  1. answer the remaining blockers now;
+  2. approve the spec as-is with open questions recorded;
+  3. pause the workflow until more information exists.
+
+Do not upload until the user explicitly chooses option 2 or resolves the blockers.
+
+## Step 4: Write Requirements Spec
+
+Structure:
+
+```markdown
+# 需求规格：{功能名称}
+## 背景与目标
+## 需求状态
+### 已确认
+### 假设
+### 待确认
+## 用户场景
+## 功能需求
+### 功能总览
+### 模块 / 页面详细说明
+### 边界与约束
+## 验收标准（Given/When/Then）
+## 非功能说明
+## 澄清历史
+## 技术设计关注点
+```
+
+Only include unresolved requirements, external dependencies, boundary constraints, or risks that Stage 2 must explicitly carry forward.
+Do not write solution proposals, module designs, interface designs, data models, or implementation steps here.
+
+Run self-review checklist before presenting:
+1. No placeholders (TBD, 待定, 后续确认)
+2. No internal contradictions
+3. No ambiguous statements (each requirement has exactly one interpretation)
+4. Scope is focused
+5. Every assumption is clearly separated from confirmed facts
+
+See `references/spec-template.md` for full template.
+
+## Step 5: User Confirmation (HARD GATE)
+
+Present the spec and ask:
+> "Please confirm: (1) Is the goal and scope accurate? (2) Any missing requirements? (3) Are acceptance criteria testable? I'll upload to xuecheng after confirmation."
+
+Wait for explicit confirmation. Revise and re-review if changes requested.
+
+If the spec still contains open blockers, the user must explicitly approve uploading with those items recorded before proceeding.
+
+## Step 6: Upload to Xuecheng
+
+Upload as a child document under the parent document provided by the user at workflow start:
+
+```bash
+oa-skills citadel createDocument \
+  --title "{name} - 需求规格" \
+  --content "{markdown}" \
+  --parentId <parent-content-id> \
+  --mis <mis>
+```
+
+If parent document ID was not provided, ask: "请提供学城父文档ID（或父文档链接），用于上传需求规格文档。"
+
+If `citadel createDocument` fails:
+- Save the spec locally: `mkdir -p .runway/docs && cat > .runway/docs/requirements-spec-draft.md`
+- Notify user: "学城上传失败，规格已保存到本地 `.runway/docs/requirements-spec-draft.md`。流程继续，Stage 2 将使用本地文件。"
+- Record `requirements_spec_contentId: local:.runway/docs/requirements-spec-draft.md` and return to orchestrator.
+
+Record the returned `contentId` for runway-tech-design input.
+
+## Terminal State
+
+Requirements spec uploaded to xuecheng, user confirmed. Return control to the calling orchestrator. **Do NOT invoke runway-tech-design directly — the orchestrator handles stage transitions.**
+
+## Additional Resources
+
+- **`references/clarification-questions.md`** — Question templates by dimension
+- **`references/spec-template.md`** — Full requirements spec template with examples

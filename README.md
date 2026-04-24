@@ -135,7 +135,7 @@ During install, any legacy top-level skill and hook artifacts are removed.
 If you close Claude Code mid-workflow, resume by saying:
 
 ```
-继续开发，当前阶段是技术方案，需求规格 contentId 是 2755778339
+继续开发，当前阶段是技术方案，需求规格 contentId 是 27557783399
 ```
 
 ## Troubleshooting

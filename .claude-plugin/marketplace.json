@@ -1,0 +1,21 @@
+{
+  "name": "runway",
+  "metadata": {
+    "description": "Meituan AI-driven development pipeline plugin marketplace"
+  },
+  "owner": {
+    "name": "liaogm"
+  },
+  "plugins": [
+    {
+      "name": "runway",
+      "description": "Full development pipeline from PRD to QA — 7 stages with hard gates, TDD enforcement, and evidence-based completion",
+      "version": "0.1.0",
+      "author": {
+        "name": "Meituan AI Platform"
+      },
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}

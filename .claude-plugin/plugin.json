@@ -1,0 +1,10 @@
+{
+  "name": "runway",
+  "version": "0.1.0",
+  "description": "AI-driven end-to-end development pipeline: PRD analysis → tech design → task planning → parallel dev → code review → QA verification",
+  "author": {
+    "name": "Meituan AI Platform"
+  },
+  "skills": "./skills/",
+  "license": "MIT"
+}

@@ -36,7 +36,9 @@ Execute only the required review path
     ↓
 [ADR-triggered] → optional ADR capture
     ↓
-Self-review → User review (HARD GATE) → citadel upload → return control to runway orchestrator
+Self-review → User review (HARD GATE) → [changes?] → Knowledge Capture → citadel upload → return control to runway orchestrator
+                                                             ↓
+                                                      [no changes: skip]
 ```
 
 Use a lightweight-by-default 3-level admission model.
@@ -48,6 +50,30 @@ If a required section has no meaningful change, write a brief explicit reason ra
 Only Step 6 (User Review) is a user pause point. Steps 1-5 and Step 7 must continue in the same turn unless a true blocker is hit.
 Do not ask the user whether to continue before Step 6. Do not wait for "继续" or similar confirmation before the Hard Gate.
 Step 4 (deliberate mode) and Step 5 (self-review) are internal quality steps, not review pauses or confirmation points.
+
+## Step 0.5: Load Project Knowledge
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+KNOWLEDGE_S2=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 2 --format prompt 2>/dev/null || echo "")
+```
+
+如果 `KNOWLEDGE_S2` 非空，将其拼接到 Planner prompt 中 `<code-reality-report>` 之前：
+
+```
+{KNOWLEDGE_S2}
+
+<requirements>
+{REQUIREMENTS_SPEC}
+</requirements>
+
+<code-reality-report>
+{CODE_REALITY_REPORT}
+</code-reality-report>
+```
+
+这确保 Planner 在起草方案前就知道本项目的业务约束和历史纠正记录。
 
 ## Step 1: Read Requirements Spec + Lightweight Admission Scan
 
@@ -497,6 +523,15 @@ See `references/deliberate-checklist.md` for full checklist.
 
 ## Step 6: User Review (HARD GATE)
 
+Before presenting the spec, save a snapshot of the current draft so changes can be detected later:
+
+```bash
+mkdir -p .runway/tmp
+cat > .runway/tmp/spec-draft-stage2.md << 'DRAFT_EOF'
+{COMPLETE_TECH_SPEC_CONTENT}
+DRAFT_EOF
+```
+
 Output the **complete tech spec in full** — every section, no summarizing, no truncating. Then ask the user to confirm:
 
 ---
@@ -513,6 +548,87 @@ Output the **complete tech spec in full** — every section, no summarizing, no 
 > 确认后将上传学城并进入任务规划阶段。
 
 If changes are requested: revise the spec, re-run the required admission path from Pass 1, then re-present the full spec at this gate. Only proceed on explicit approval.
+
+## Step 6.5: Knowledge Capture — Stage 2 Hard Gate
+
+Run this step after the user approves, before uploading to xuecheng. Its purpose is to surface what the user changed so that the same corrections don't need to happen again next time.
+
+**If the user approved with no modifications, skip this step entirely.**
+
+### Detect and extract changes
+
+Compare the saved draft (`.runway/tmp/spec-draft-stage2.md`) against the final approved spec. Focus on these sections where corrections carry the most reuse value:
+
+- `二、详细设计` — did the user change the implementation approach or module boundaries?
+- `三、接口协议变更` — did the user modify interface fields, directions, or compatibility rules?
+- `四、基础设施设计` — did the user reject a storage, config, or messaging choice?
+- Any place the user said "不行", "应该用 X", "我们规定", or "上次就是这样出问题的"
+
+For each substantive difference, extract what the AI wrote, what the user changed it to, and why.
+
+Ignore formatting changes, wording polish, and reordering. Only capture changes that carry a business rule or reveal a constraint the AI missed.
+
+### Classify each finding
+
+- User added a constraint or rule the AI didn't know about → `implicit_constraint`
+  - Will be injected into future Stage 2 Planners so designs respect this constraint from the start
+- User corrected an AI assumption or judgment → `ai_correction`
+  - Will be injected into Stage 1 and Stage 2 so future analysis catches this class of mistake earlier
+
+### Present findings to the user for confirmation
+
+Show each finding as a numbered item before writing anything:
+
+```
+我注意到你做了以下修改，准备沉淀到项目知识库：
+
+1. [隐性约束] 灰度开关必须走 Lion 配置，不能用环境变量
+   原因：环境变量在容器重启后不可动态调整，Lion 支持实时生效
+
+2. [AI纠正] 不需要加降级开关，这个功能没有降级场景
+   原因：AI 默认加了 Lion 开关，但用户明确说此功能无需降级
+
+请确认：
+  a) 全部保留
+  b) 告诉我哪条需要修改或删除
+  c) 跳过，不沉淀
+```
+
+Wait for the user's response before writing anything. If the user selects (c) or doesn't respond, skip the write step entirely.
+
+### Write confirmed entries
+
+After the user confirms (a) or provides edits (b), write each approved entry:
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+node "$RUNWAY_TOOLS" knowledge-append \
+  --root "$PWD" \
+  --ones-id "{ones_work_item_id}" \
+  --entries '[
+    {
+      "type": "implicit_constraint",
+      "captured_at_stage": 2,
+      "trigger": "hard_gate_diff",
+      "inject_into_stages": [2],
+      "inject_as": "constraint",
+      "scope": "project",
+      "summary": "{用户确认的一句话摘要}",
+      "detail": "{AI原判断} → {用户修改为} — {业务原因}",
+      "confidence": 9
+    }
+  ]' || true
+```
+
+Field selection guide:
+- `type`: `implicit_constraint` for new constraints the AI missed; `ai_correction` for wrong AI judgments
+- `inject_into_stages`: `[2]` for constraints; `[1, 2]` for AI corrections
+- `inject_as`: `constraint` for constraints; `past_error` for AI corrections
+- `scope`: `project` if this applies to future features; `feature` if one-time only
+- `confidence`: 9–10 if the user explicitly confirmed; 7–8 if inferred from context
+
+Write one entry per finding. Failure to write does not block the upload step (`|| true`).
 
 ## Step 7: Upload to Xuecheng (after user confirms)
 

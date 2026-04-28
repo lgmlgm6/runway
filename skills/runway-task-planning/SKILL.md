@@ -30,6 +30,19 @@ Activate after runway-tech-design is approved. Input: tech spec (markdown or xue
 Read tech spec → Explore codebase → Map file structure → Write plan (with waves + dependencies) → Self-review → return control to runway orchestrator with plan path
 ```
 
+## Step 0.5: Load Pitfall Warnings
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+KNOWLEDGE_S3=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 3 --format prompt 2>/dev/null || echo "")
+```
+
+如果 `KNOWLEDGE_S3` 非空（包含 `<known-pitfalls>` 块），在 Step 3（Write the Plan）时：
+- 对每个 pitfall，检查当前任务计划是否可能触发同类问题
+- 如果可能触发，在对应任务的 Task Block 中加 `**Known Risk:**` 字段，引用 pitfall 摘要
+- 如果 pitfall 要求额外任务（如"必须专门写 Converter 任务"），主动加入任务列表
+
 ## Step 1: Read Tech Spec
 
 If xuecheng link provided:

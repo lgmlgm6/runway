@@ -365,6 +365,158 @@ test('checkpoint-write and report-write commands update the canonical checkpoint
   assert.equal(updatedCheckpoint.current_stage, 6);
 });
 
+test('knowledge-append writes entries to knowledge.json and knowledge-read filters by stage', () => {
+  const rootDir = makeTempRoot();
+
+  // Append a constraint targeting Stage 2
+  const appendResult = spawnSync(process.execPath, [
+    cliPath,
+    'knowledge-append',
+    '--root', rootDir,
+    '--ones-id', 'feature-001',
+    '--entries', JSON.stringify([{
+      type: 'implicit_constraint',
+      captured_at_stage: 1,
+      trigger: 'hard_gate_diff',
+      inject_into_stages: [2],
+      inject_as: 'constraint',
+      scope: 'project',
+      summary: '接口字段只能新增不能修改',
+      detail: 'AI草稿修改了字段类型 → 用户改回 — 下游未做版本隔离',
+      confidence: 9,
+    }]),
+  ], { encoding: 'utf8' });
+
+  assert.equal(appendResult.status, 0);
+  assert.deepEqual(JSON.parse(appendResult.stdout), { appended: 1, total: 1 });
+
+  // Append a pitfall targeting Stage 3 and 5
+  const appendResult2 = spawnSync(process.execPath, [
+    cliPath,
+    'knowledge-append',
+    '--root', rootDir,
+    '--ones-id', 'feature-001',
+    '--entries', JSON.stringify([{
+      type: 'pitfall_root_cause',
+      captured_at_stage: 5,
+      trigger: 'task_blocked',
+      inject_into_stages: [3, 5],
+      inject_as: 'warning',
+      scope: 'project',
+      summary: 'MapStruct 不处理父类字段',
+      detail: '父类字段需要 @Mapping 显式声明',
+      confidence: 8,
+    }]),
+  ], { encoding: 'utf8' });
+
+  assert.equal(appendResult2.status, 0);
+  assert.deepEqual(JSON.parse(appendResult2.stdout), { appended: 1, total: 2 });
+
+  // knowledge-read for Stage 2 should return only the constraint
+  const readStage2 = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '2', '--format', 'json',
+  ], { encoding: 'utf8' });
+
+  assert.equal(readStage2.status, 0);
+  const stage2Entries = JSON.parse(readStage2.stdout);
+  assert.equal(stage2Entries.length, 1);
+  assert.equal(stage2Entries[0].type, 'implicit_constraint');
+  assert.equal(stage2Entries[0].source_ones_id, 'feature-001');
+
+  // knowledge-read for Stage 5 should return only the pitfall
+  const readStage5 = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '5', '--format', 'json',
+  ], { encoding: 'utf8' });
+
+  assert.equal(readStage5.status, 0);
+  const stage5Entries = JSON.parse(readStage5.stdout);
+  assert.equal(stage5Entries.length, 1);
+  assert.equal(stage5Entries[0].type, 'pitfall_root_cause');
+
+  // knowledge-read for Stage 1 should return empty (no entries target Stage 1)
+  const readStage1 = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '1', '--format', 'json',
+  ], { encoding: 'utf8' });
+
+  assert.equal(readStage1.status, 0);
+  assert.deepEqual(JSON.parse(readStage1.stdout), []);
+});
+
+test('knowledge-read --format prompt renders structured XML blocks', () => {
+  const rootDir = makeTempRoot();
+
+  spawnSync(process.execPath, [
+    cliPath,
+    'knowledge-append',
+    '--root', rootDir,
+    '--ones-id', 'feature-002',
+    '--entries', JSON.stringify([
+      {
+        type: 'implicit_constraint',
+        captured_at_stage: 1,
+        trigger: 'hard_gate_diff',
+        inject_into_stages: [2],
+        inject_as: 'constraint',
+        scope: 'project',
+        summary: '灰度开关必须走 Lion 配置',
+        detail: '环境变量不支持动态调整',
+        confidence: 9,
+      },
+      {
+        type: 'ai_correction',
+        captured_at_stage: 2,
+        trigger: 'hard_gate_diff',
+        inject_into_stages: [1, 2],
+        inject_as: 'past_error',
+        scope: 'project',
+        summary: 'AI 误判了数据归属范围',
+        detail: 'AI 写了全量查询，应限定为当前 mis',
+        confidence: 9,
+      },
+    ]),
+  ], { encoding: 'utf8' });
+
+  const result = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '2', '--format', 'prompt',
+  ], { encoding: 'utf8' });
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /<project-constraints>/);
+  assert.match(result.stdout, /灰度开关必须走 Lion 配置/);
+  assert.match(result.stdout, /<\/project-constraints>/);
+  assert.match(result.stdout, /<past-corrections>/);
+  assert.match(result.stdout, /AI 误判了数据归属范围/);
+  assert.match(result.stdout, /<\/past-corrections>/);
+
+  // Stage 1 only gets the ai_correction (inject_into_stages includes 1)
+  const resultStage1 = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '1', '--format', 'prompt',
+  ], { encoding: 'utf8' });
+
+  assert.equal(resultStage1.status, 0);
+  assert.doesNotMatch(resultStage1.stdout, /<project-constraints>/);
+  assert.match(resultStage1.stdout, /<past-corrections>/);
+  assert.match(resultStage1.stdout, /AI 误判了数据归属范围/);
+});
+
+test('knowledge-read returns empty output when knowledge.json does not exist', () => {
+  const rootDir = makeTempRoot();
+
+  const jsonResult = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '2', '--format', 'json',
+  ], { encoding: 'utf8' });
+
+  assert.equal(jsonResult.status, 0);
+  assert.deepEqual(JSON.parse(jsonResult.stdout), []);
+
+  const promptResult = spawnSync(process.execPath, [
+    cliPath, 'knowledge-read', '--root', rootDir, '--inject-into-stage', '2', '--format', 'prompt',
+  ], { encoding: 'utf8' });
+
+  assert.equal(promptResult.status, 0);
+  assert.equal(promptResult.stdout, '');
+});
+
 test('project-memory-init creates the default project memory once and preserves edits', () => {
   const rootDir = makeTempRoot();
 

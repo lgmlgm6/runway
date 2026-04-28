@@ -303,6 +303,84 @@ test('Stage 1 spec hands off design inputs without turning into technical design
   assert.match(specTemplate, /> 不要在这里写方案、模块设计、接口设计、数据模型或实现步骤。/);
 });
 
+test('Knowledge injection steps exist in every stage that consumes project knowledge', () => {
+  const prdAnalysis = read('runway-prd-analysis/SKILL.md');
+  const techDesign = read('runway-tech-design/SKILL.md');
+  const taskPlanning = read('runway-task-planning/SKILL.md');
+  const parallelDev = read('runway-parallel-dev/SKILL.md');
+
+  // Each consuming stage must load knowledge before its core work begins
+  assert.match(prdAnalysis, /knowledge-read --root "\$PWD" --inject-into-stage 1/);
+  assert.match(techDesign, /knowledge-read --root "\$PWD" --inject-into-stage 2/);
+  assert.match(taskPlanning, /knowledge-read --root "\$PWD" --inject-into-stage 3/);
+  assert.match(parallelDev, /knowledge-read --root "\$PWD" --inject-into-stage 5/);
+
+  // Stage 5 implementer prompt must have a Known Project Pitfalls field
+  const implementerPrompt = read('runway-parallel-dev/references/implementer-prompt.md');
+  assert.match(implementerPrompt, /## Known Project Pitfalls/);
+  assert.match(implementerPrompt, /KNOWLEDGE_S5/);
+});
+
+test('Hard Gate knowledge capture follows the extract-present-confirm-write sequence', () => {
+  const prdAnalysis = read('runway-prd-analysis/SKILL.md');
+  const techDesign = read('runway-tech-design/SKILL.md');
+
+  for (const [name, content] of [['prd-analysis', prdAnalysis], ['tech-design', techDesign]]) {
+    // Step 1: draft snapshot must be saved before presenting to user
+    assert.match(content, /cat > \.runway\/tmp\/spec-draft-stage\d\.md/,
+      `${name}: must save draft snapshot before presenting`);
+
+    // Step 2: AI must present findings to user before writing
+    assert.match(content, /Present findings to the user for confirmation/,
+      `${name}: must present findings to user`);
+
+    // Step 3: must wait for user response before writing
+    assert.match(content, /Wait for the user.s response before writing anything/,
+      `${name}: must wait for user response before writing`);
+
+    // Step 4: user confirmation options must include a skip option
+    assert.match(content, /跳过，不沉淀/,
+      `${name}: must offer a skip option`);
+
+    // Step 5: write only after user confirms
+    assert.match(content, /After the user confirms.*write each approved entry/s,
+      `${name}: must write only after user confirms`);
+
+    // Skip condition must be explicit
+    assert.match(content, /If the user (confirmed|approved) with no modifications, skip this step entirely/,
+      `${name}: must explicitly skip when no modifications`);
+  }
+});
+
+test('All knowledge-append calls are non-blocking with || true', () => {
+  const skillFiles = [
+    'runway-prd-analysis/SKILL.md',
+    'runway-tech-design/SKILL.md',
+    'runway-parallel-dev/SKILL.md',
+    'runway-code-review-fix/SKILL.md',
+    'runway-qa-verify/SKILL.md',
+  ];
+
+  for (const file of skillFiles) {
+    const content = read(file);
+    // Extract all knowledge-append call blocks and verify each ends with || true
+    const appendCalls = content.match(/knowledge-append[\s\S]*?\|\| true/g) ?? [];
+    assert.ok(
+      appendCalls.length > 0,
+      `${file}: expected at least one knowledge-append call with || true`,
+    );
+    // No knowledge-append call should appear without || true
+    const bareAppend = content.match(/knowledge-append(?![\s\S]*?\|\| true[\s\S]*?knowledge-append)/g);
+    const allGuarded = !content.includes('knowledge-append') ||
+      content.split('knowledge-append').slice(1).every((segment) => {
+        const nextPipe = segment.indexOf('|| true');
+        const nextAppend = segment.indexOf('knowledge-append');
+        return nextPipe !== -1 && (nextAppend === -1 || nextPipe < nextAppend);
+      });
+    assert.ok(allGuarded, `${file}: every knowledge-append call must be followed by || true`);
+  }
+});
+
 test('Skill contracts avoid migration-residue wording', () => {
   const skillFiles = [
     'runway/SKILL.md',

@@ -19,9 +19,9 @@ Activate when the user provides a xuecheng PRD link and asks for requirements an
 ## Process
 
 ```
-citadel getMarkdown → Ambiguity Score → [>20%: Socratic Q&A] → Spec → User Confirm → citadel createDocument → return control to runway orchestrator
-                                             ↓
-                                  [still >20% after max rounds]
+citadel getMarkdown → Ambiguity Score → [>20%: Socratic Q&A] → Spec → User Confirm → [changes?] → Knowledge Capture → citadel createDocument → return control to runway orchestrator
+                                             ↓                                              ↓
+                                  [still >20% after max rounds]                      [no changes: skip]
                                              ↓
                               Human decision on unresolved items
 ```
@@ -49,6 +49,16 @@ grep -rn "Service\|TService\|Gateway" --include="*.java" -l | head -20
 ```
 
 This prevents asking questions that the code already answers (e.g., "which interface owns this feature?"). Only ask questions that are **business decisions** the code cannot answer.
+
+## Step 1.5: Load Past Corrections
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+KNOWLEDGE_S1=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 1 --format prompt 2>/dev/null || echo "")
+```
+
+如果 `KNOWLEDGE_S1` 非空，在后续 Ambiguity Scoring 和 Socratic 提问时将其作为额外上下文：这些历史纠正记录揭示了哪类 PRD 容易遗漏哪类约束，在打分和提问时优先关注这些维度。
 
 ## Step 2: Ambiguity Scoring
 
@@ -145,12 +155,99 @@ See `references/spec-template.md` for full template.
 
 ## Step 5: User Confirmation (HARD GATE)
 
+Before presenting the spec, save a snapshot of the current draft so changes can be detected later:
+
+```bash
+mkdir -p .runway/tmp
+cat > .runway/tmp/spec-draft-stage1.md << 'DRAFT_EOF'
+{CURRENT_SPEC_CONTENT}
+DRAFT_EOF
+```
+
 Present the spec and ask:
 > "Please confirm: (1) Is the goal and scope accurate? (2) Any missing requirements? (3) Are acceptance criteria testable? I'll upload to xuecheng after confirmation."
 
 Wait for explicit confirmation. Revise and re-review if changes requested.
 
 If the spec still contains open blockers, the user must explicitly approve uploading with those items recorded before proceeding.
+
+## Step 5.5: Knowledge Capture — Stage 1 Hard Gate
+
+Run this step after the user confirms, before uploading to xuecheng. Its purpose is to surface what the user changed so that the same corrections don't need to happen again next time.
+
+**If the user confirmed with no modifications, skip this step entirely.**
+
+### Detect and extract changes
+
+Compare the saved draft (`.runway/tmp/spec-draft-stage1.md`) against the final confirmed spec. For each substantive difference, extract:
+
+- **What the AI originally wrote** — the assumption or judgment that turned out to be wrong or incomplete
+- **What the user changed it to** — the corrected version
+- **Why** — the business reason behind the correction (infer from context if the user didn't state it explicitly)
+
+Ignore formatting changes, wording polish, and reordering. Only capture changes that carry a business rule or reveal a constraint the AI missed.
+
+### Classify each finding
+
+- User added a constraint or rule the AI didn't know about → `implicit_constraint`
+  - Will be injected into Stage 2 Planner so future designs respect this constraint
+- User corrected an AI assumption or judgment → `ai_correction`
+  - Will be injected into Stage 1 and Stage 2 so future analysis catches this earlier
+
+### Present findings to the user for confirmation
+
+Show each finding as a numbered item before writing anything:
+
+```
+我注意到你做了以下修改，准备沉淀到项目知识库：
+
+1. [隐性约束] 接口字段只能新增，不能修改或删除
+   原因：下游调用方未做版本隔离，改字段会导致线上反序列化失败
+
+2. [AI纠正] 数据范围应限定为"当前 mis 下的数据"，不是全量
+   原因：AI 草稿未考虑数据归属约束
+
+请确认：
+  a) 全部保留
+  b) 告诉我哪条需要修改或删除
+  c) 跳过，不沉淀
+```
+
+Wait for the user's response before writing anything. If the user selects (c) or doesn't respond, skip the write step entirely.
+
+### Write confirmed entries
+
+After the user confirms (a) or provides edits (b), write each approved entry:
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+node "$RUNWAY_TOOLS" knowledge-append \
+  --root "$PWD" \
+  --ones-id "{ones_work_item_id}" \
+  --entries '[
+    {
+      "type": "implicit_constraint",
+      "captured_at_stage": 1,
+      "trigger": "hard_gate_diff",
+      "inject_into_stages": [2],
+      "inject_as": "constraint",
+      "scope": "project",
+      "summary": "{用户确认的一句话摘要}",
+      "detail": "{AI原判断} → {用户修改为} — {业务原因}",
+      "confidence": 9
+    }
+  ]' || true
+```
+
+Field selection guide:
+- `type`: `implicit_constraint` for new constraints the AI missed; `ai_correction` for wrong AI judgments
+- `inject_into_stages`: `[2]` for constraints; `[1, 2]` for AI corrections
+- `inject_as`: `constraint` for constraints; `past_error` for AI corrections
+- `scope`: `project` if this applies to future features; `feature` if one-time only
+- `confidence`: 9–10 if the user explicitly confirmed; 7–8 if inferred from context
+
+Write one entry per finding. Failure to write does not block the upload step (`|| true`).
 
 ## Step 6: Upload to Xuecheng
 

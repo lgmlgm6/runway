@@ -92,6 +92,39 @@ Avoid comparing line numbers or timestamps. They change between runs and do not 
 
 If the normalized failure signature is identical for the 3rd consecutive round → stop → Step 4 (escalate).
 
+### Knowledge Capture on Repeated Failure
+
+当同一 normalized failure signature **第 2 次出现**时（不必等第 3 次），在继续修复循环之前提炼根因：
+
+判断：
+1. 这个失败是代码问题还是环境/配置问题？
+2. 为什么第一次修复没有彻底解决？根因是什么？
+3. 这条知识在未来类似任务中是否有预警价值？
+
+如果 `confidence >= 7`，写入 knowledge.json：
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+ONES_ID=$(jq -r '.ones_work_item_id' .runway/checkpoint-*.json 2>/dev/null | head -1)
+node "$RUNWAY_TOOLS" knowledge-append \
+  --root "$PWD" \
+  --ones-id "${ONES_ID:-unknown}" \
+  --entries '[{
+    "type": "pitfall_root_cause",
+    "captured_at_stage": 7,
+    "trigger": "qa_repeated_failure",
+    "inject_into_stages": [3, 5],
+    "inject_as": "warning",
+    "scope": "project",
+    "summary": "{根因一句话}",
+    "detail": "{失败特征} — {第一次修复尝试} — {为什么没修好} — {根因}",
+    "confidence": 8
+  }]' || true
+```
+
+`confidence` 根据根因的确定程度填 7–10 的整数。捕获失败不阻塞主流程（`|| true`）。
+
 **What counts as "same failure":** same failing tests or same normalized error cluster for build/lint/typecheck.
 
 ### Architect diagnosis

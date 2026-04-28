@@ -93,6 +93,16 @@ Before dispatching any wave, collect all primary files for that wave and verify 
 
 See `references/dependency-verification.md` (Wave Conflict Detection section) for the detection pattern and fix procedure.
 
+## Step 1.5: Load Pitfall Warnings
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+KNOWLEDGE_S5=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 5 --format prompt 2>/dev/null || echo "")
+```
+
+如果 `KNOWLEDGE_S5` 非空，在派发每个 implementer subagent 时将其注入到 prompt 的 `## Known Project Pitfalls` 字段（见 `references/implementer-prompt.md`）。
+
 ## Step 2: Dispatch Subagents (per wave)
 
 Dispatch all tasks in the current wave concurrently. Use the full prompt template from `references/implementer-prompt.md` — fill in all placeholders before dispatching. Never make the subagent read the plan file itself; provide the full task text directly.
@@ -103,6 +113,7 @@ Key fields to fill:
 - `{Relevant files}` — content of files the task touches or depends on
 - `{directory}` — working directory
 - `{expected failing output}` — what the initial red phase should prove
+- `{KNOWLEDGE_S5}` — known project pitfalls (omit this field if empty)
 
 ### Model Selection
 
@@ -124,6 +135,39 @@ Key fields to fill:
 A task-level `BLOCKED` state is not by itself a Stage 5 user pause point. Record it, continue other runnable tasks in the same wave, and pause the stage only if Step 4's allowed conditions are later met.
 NEEDS_CONTEXT retries, spec-review repair rounds, and code-quality fix rounds are internal execution loops, not user review gates.
 Do not ask the user for confirmation between implementer → spec review → code quality review hops unless an explicit Step 4 pause condition is reached.
+
+### Knowledge Capture on BLOCKED / DONE_WITH_CONCERNS
+
+当任务状态为 `BLOCKED` 或 `DONE_WITH_CONCERNS` 时，在记录到 execution report 之前，立即执行根因提炼（内部步骤）：
+
+判断：
+1. 这是代码库中已存在但 AI 未意识到的隐性事实吗？（如：某个类的字段继承规则、某个工具的限制）
+2. 根因是什么？不只是"遇到了问题"，而是"为什么会遇到这个问题"
+3. 这条知识在未来类似任务中是否有预警价值？
+
+如果 `confidence >= 7`，写入 knowledge.json：
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+ONES_ID=$(jq -r '.ones_work_item_id' .runway/checkpoint-*.json 2>/dev/null | head -1)
+node "$RUNWAY_TOOLS" knowledge-append \
+  --root "$PWD" \
+  --ones-id "${ONES_ID:-unknown}" \
+  --entries '[{
+    "type": "pitfall_root_cause",
+    "captured_at_stage": 5,
+    "trigger": "task_blocked",
+    "inject_into_stages": [3, 5],
+    "inject_as": "warning",
+    "scope": "project",
+    "summary": "{根因一句话}",
+    "detail": "{任务描述} — {遇到的问题} — {根因分析} — {解决方法}",
+    "confidence": 8
+  }]' || true
+```
+
+`confidence` 根据根因的确定程度填 7–10 的整数。捕获失败不阻塞主流程（`|| true`）。
 
 ## Step 3: Two-Phase Review (per task)
 

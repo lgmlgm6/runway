@@ -221,6 +221,90 @@ function handleReportWrite(args) {
   });
 }
 
+function getKnowledgePath(rootDir) {
+  return path.join(rootDir, '.runway', 'knowledge.json');
+}
+
+function readKnowledge(rootDir) {
+  const p = getKnowledgePath(rootDir);
+  return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : [];
+}
+
+function handleKnowledgeAppend(args) {
+  const rootDir = requireArg(args, 'root');
+  const onesId = requireArg(args, 'ones_id');
+  const entries = JSON.parse(requireArg(args, 'entries'));
+
+  const existing = readKnowledge(rootDir);
+  const now = new Date().toISOString();
+  const base = Date.now();
+
+  const newEntries = entries.map((entry, i) => ({
+    id: `k-${base}-${String(i).padStart(3, '0')}`,
+    source_ones_id: onesId,
+    ts: now,
+    ...entry,
+  }));
+
+  const knowledgePath = getKnowledgePath(rootDir);
+  fs.mkdirSync(path.dirname(knowledgePath), { recursive: true });
+  fs.writeFileSync(knowledgePath, `${JSON.stringify([...existing, ...newEntries], null, 2)}\n`);
+
+  printJson({ appended: newEntries.length, total: existing.length + newEntries.length });
+}
+
+function formatKnowledgeAsPrompt(entries) {
+  const constraints = entries.filter((k) => k.inject_as === 'constraint');
+  const corrections = entries.filter((k) => k.inject_as === 'past_error');
+  const pitfalls = entries.filter((k) => k.inject_as === 'warning');
+
+  let out = '';
+
+  if (constraints.length > 0) {
+    out += '<project-constraints>\n以下是本项目的隐性业务约束，设计方案时必须遵守：\n\n';
+    constraints.forEach((k, i) => {
+      out += `${i + 1}. ${k.summary}\n   背景：${k.detail}\n   来源：需求 ${k.source_ones_id}\n\n`;
+    });
+    out += '</project-constraints>\n\n';
+  }
+
+  if (corrections.length > 0) {
+    out += '<past-corrections>\n以下是 AI 在历史需求中的判断错误，本次请特别注意：\n\n';
+    corrections.forEach((k, i) => {
+      out += `${i + 1}. [Stage ${k.captured_at_stage} 纠正] ${k.summary}\n   详情：${k.detail}\n   来源：需求 ${k.source_ones_id}\n\n`;
+    });
+    out += '</past-corrections>\n\n';
+  }
+
+  if (pitfalls.length > 0) {
+    out += '<known-pitfalls>\n以下是本项目历史上踩过的坑，请提前防范：\n\n';
+    pitfalls.forEach((k, i) => {
+      out += `${i + 1}. ${k.summary}\n   根因：${k.detail}\n   来源：需求 ${k.source_ones_id}\n\n`;
+    });
+    out += '</known-pitfalls>\n\n';
+  }
+
+  return out.trimEnd();
+}
+
+function handleKnowledgeRead(args) {
+  const rootDir = requireArg(args, 'root');
+  const stage = Number(requireArg(args, 'inject_into_stage'));
+  const format = args.format ?? 'json';
+
+  const all = readKnowledge(rootDir);
+  const relevant = all.filter((k) => Array.isArray(k.inject_into_stages) && k.inject_into_stages.includes(stage));
+
+  if (format === 'json') {
+    printJson(relevant);
+    return;
+  }
+
+  // format === 'prompt'
+  const prompt = formatKnowledgeAsPrompt(relevant);
+  process.stdout.write(prompt ? `${prompt}\n` : '');
+}
+
 function handleProjectMemoryInit(args) {
   const rootDir = requireArg(args, 'root');
   const runwayDir = path.join(rootDir, '.runway');
@@ -299,6 +383,16 @@ function main() {
 
     if (command === 'project-memory-init') {
       handleProjectMemoryInit(args);
+      return;
+    }
+
+    if (command === 'knowledge-append') {
+      handleKnowledgeAppend(args);
+      return;
+    }
+
+    if (command === 'knowledge-read') {
+      handleKnowledgeRead(args);
       return;
     }
 

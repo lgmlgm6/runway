@@ -58,6 +58,10 @@ Task tool (general-purpose):
     - Architectural context: {relevant design constraints}
     - Task start SHA: {task-start-sha}
 
+    ## Known Project Pitfalls
+
+    {KNOWLEDGE_S5 — paste output of `knowledge-read --inject-into-stage 5 --format prompt` here; omit this section entirely if empty}
+
     ## Relevant Files
 
     {List files this task touches or depends on, with current content or key excerpts}

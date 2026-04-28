@@ -55,18 +55,25 @@ If the file does not exist, these fields will be collected during the workflow a
 - `ones_work_item_id` — different for every feature
 - `citadel_parent_id` — may differ per feature (the parent doc for this feature's spec/tech-spec)
 
-**Step 0b — Load project learnings:**
-
-If `.runway/learnings.jsonl` exists, load the most recent 10 entries and display them as context:
+**Step 0b — Load project knowledge:**
 
 ```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+
+if [[ -f .runway/knowledge.json ]]; then
+  KNOWLEDGE_COUNT=$(jq 'length' .runway/knowledge.json 2>/dev/null || echo 0)
+  echo "📚 项目知识库：${KNOWLEDGE_COUNT} 条（constraints / corrections / pitfalls）"
+  echo "   将在对应 Stage 自动注入，无需手动关注。"
+fi
+
 if [[ -f .runway/learnings.jsonl ]]; then
-  echo "📚 项目经验（最近10条）："
+  echo "📖 复盘经验（最近10条）："
   tail -10 .runway/learnings.jsonl | jq -r '"[\(.stage)] \(.key): \(.insight)"' 2>/dev/null
 fi
 ```
 
-These learnings inform the current workflow — pay attention to any `pitfall` entries that may affect the current feature.
+These entries inform the current workflow — knowledge.json entries are injected automatically at each stage; pay attention to any `pitfall` learnings that may affect the current feature.
 
 **Step 0c — Check for unfinished work (checkpoint restore):**
 
@@ -511,6 +518,20 @@ EOF
 ```
 
 Only record findings with genuine reuse value. Skip if nothing notable occurred.
+
+### Step 8a-extra — Review captured knowledge entries
+
+检查本次流水线中捕获的 knowledge.json 条目（`source_ones_id` = 当前 `ones_id`）：
+
+```bash
+jq --arg id "{ones_id}" '[.[] | select(.source_ones_id == $id)]' .runway/knowledge.json 2>/dev/null
+```
+
+对每条条目做简单评估：
+- `scope = "feature"` 的条目：判断是否应提升为 `"project"`（对其他需求也适用）
+- `confidence < 7` 的条目：判断是否应删除（可能是噪音）
+
+如有需要调整，直接编辑 `.runway/knowledge.json`。这是人工复盘点，非自动化步骤，可跳过。
 
 ### Step 8b — Update project knowledge file
 

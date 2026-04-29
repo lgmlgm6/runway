@@ -353,12 +353,11 @@ test('Hard Gate knowledge capture follows the extract-present-confirm-write sequ
 });
 
 test('All knowledge-append calls are non-blocking with || true', () => {
+  // CR (Stage 6) and QA (Stage 7) do not capture knowledge — only Stage 1/2/5 do.
   const skillFiles = [
     'runway-prd-analysis/SKILL.md',
     'runway-tech-design/SKILL.md',
     'runway-parallel-dev/SKILL.md',
-    'runway-code-review-fix/SKILL.md',
-    'runway-qa-verify/SKILL.md',
   ];
 
   for (const file of skillFiles) {

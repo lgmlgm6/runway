@@ -63,13 +63,10 @@ RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 
 if [[ -f .runway/knowledge.json ]]; then
   KNOWLEDGE_COUNT=$(jq 'length' .runway/knowledge.json 2>/dev/null || echo 0)
-  echo "📚 项目知识库：${KNOWLEDGE_COUNT} 条（constraints / corrections / pitfalls）"
-  echo "   将在对应 Stage 自动注入，无需手动关注。"
-fi
-
-if [[ -f .runway/learnings.jsonl ]]; then
-  echo "📖 复盘经验（最近10条）："
-  tail -10 .runway/learnings.jsonl | jq -r '"[\(.stage)] \(.key): \(.insight)"' 2>/dev/null
+  echo "📚 项目知识库：${KNOWLEDGE_COUNT} 条"
+  echo "   最近沉淀（pitfall / pattern）："
+  jq -r '.[] | select(.type == "pitfall" or .type == "pattern") | "  [\(.type)] \(.summary)"' \
+    .runway/knowledge.json 2>/dev/null | tail -5
 fi
 ```
 
@@ -482,11 +479,14 @@ Then print:
 - Create PR / submit for review
 ```
 
-完成后，释放 Stop hook 并清理 pipeline 状态，同时删除 checkpoint 文件（工作项已完成）：
+完成后，释放 Stop hook 并清理 pipeline 状态、临时文件，同时删除 checkpoint 文件（工作项已完成）：
 
 ```bash
 rm -f .claude/runway-state/pipeline.local.md
+rm -f .claude/runway-state/triangle-loop.local.md
 rm -f .runway/checkpoint-{ones_work_item_id}.json
+rm -rf .runway/tmp/
+rm -f "{plan_path}"
 ```
 
 然后输出流水线完成信号（Stop hook 检测到此信号后允许正常退出）：
@@ -508,16 +508,30 @@ Read the three reports produced this workflow:
 - `.runway/docs/{ones_id}/cr-report.md` — look for recurring issue patterns, rejected suggestions
 - `.runway/docs/{ones_id}/qa-report.md` — look for failure rounds, repeated failures, env issues
 
-For each meaningful finding, append one JSONL entry to `.runway/learnings.jsonl`:
+For each meaningful finding, append one entry to `.runway/knowledge.json` via `knowledge-append`:
 
 ```bash
-mkdir -p .runway
-cat >> .runway/learnings.jsonl << EOF
-{"ones_id":"{ones_id}","stage":"{stage}","type":"{pitfall|pattern|tool|operational}","key":"{short-slug}","insight":"{one sentence}","confidence":{1-10},"source":"observed","ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
-EOF
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+node "$RUNWAY_TOOLS" knowledge-append \
+  --root "$PWD" \
+  --ones-id "{ones_id}" \
+  --entries '[{
+    "type": "pitfall",
+    "captured_at_stage": 8,
+    "trigger": "retrospective",
+    "inject_into_stages": [3, 5],
+    "inject_as": "warning",
+    "scope": "project",
+    "summary": "{一句话陈述性知识}",
+    "confidence": 8
+  }]' || true
 ```
 
-Only record findings with genuine reuse value. Skip if nothing notable occurred.
+- `type`: `pitfall` for technical traps; `pattern` for reusable correct approaches
+- `inject_as`: `warning` for pitfalls; `pattern` for patterns
+- `summary`: 写成陈述性事实，不写现象-根因结构
+- Only record findings with genuine reuse value. Skip if nothing notable occurred.
 
 ### Step 8a-extra — Review captured knowledge entries
 
@@ -571,7 +585,7 @@ Before declaring Development Complete, verify these artifacts exist and are up t
 - `.runway/docs/{ones_id}/execution-report.md`
 - `.runway/docs/{ones_id}/cr-report.md`
 - `.runway/docs/{ones_id}/qa-report.md`
-- `.runway/learnings.jsonl` (only if notable learnings were observed)
+- `.runway/knowledge.json` updated (only if notable learnings were observed)
 - `.runway/project-knowledge.md` append completed when new project-level conventions or traps were discovered
 
 ## Resuming a Paused Workflow

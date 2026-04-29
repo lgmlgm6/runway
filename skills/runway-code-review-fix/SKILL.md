@@ -142,33 +142,6 @@ git add {files}
 git commit -m "fix: {description} (cr-round-{N})"
 ```
 
-### Knowledge Capture after Critical Fix
-
-每次修复一个 Critical issue cluster 后（fix commit 完成后），判断：**这个 Critical 问题是否揭示了代码库中的隐性规则或约束？**（不是通用编程最佳实践，而是这个项目特有的事实）
-
-如果是，写入 knowledge.json：
-
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-ONES_ID=$(jq -r '.ones_work_item_id' .runway/checkpoint-*.json 2>/dev/null | head -1)
-node "$RUNWAY_TOOLS" knowledge-append \
-  --root "$PWD" \
-  --ones-id "${ONES_ID:-unknown}" \
-  --entries '[{
-    "type": "pitfall_root_cause",
-    "captured_at_stage": 6,
-    "trigger": "cr_critical",
-    "inject_into_stages": [3, 5],
-    "inject_as": "warning",
-    "scope": "project",
-    "summary": "{根因一句话}",
-    "detail": "{issue描述} — {为什么是Critical} — {根因} — {修复方法}",
-    "confidence": 8
-  }]' || true
-```
-
-`confidence` 根据根因的确定程度填 7–10 的整数。捕获失败不阻塞主流程（`|| true`）。
 
 ## Step 5: Loop Control
 

@@ -155,18 +155,18 @@ node "$RUNWAY_TOOLS" knowledge-append \
   --root "$PWD" \
   --ones-id "${ONES_ID:-unknown}" \
   --entries '[{
-    "type": "pitfall_root_cause",
+    "type": "pitfall",
     "captured_at_stage": 5,
     "trigger": "task_blocked",
     "inject_into_stages": [3, 5],
     "inject_as": "warning",
     "scope": "project",
-    "summary": "{根因一句话}",
-    "detail": "{任务描述} — {遇到的问题} — {根因分析} — {解决方法}",
+    "summary": "{一句话陈述性知识，描述代码库中的隐性规则或技术陷阱}",
     "confidence": 8
   }]' || true
 ```
 
+`summary` 写成陈述性事实，例如"MapStruct 默认不处理继承字段的映射，需在父类 Mapper 接口上显式加 @Mapping"。
 `confidence` 根据根因的确定程度填 7–10 的整数。捕获失败不阻塞主流程（`|| true`）。
 
 ## Step 3: Two-Phase Review (per task)

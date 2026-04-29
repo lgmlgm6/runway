@@ -608,24 +608,24 @@ node "$RUNWAY_TOOLS" knowledge-append \
   --ones-id "{ones_work_item_id}" \
   --entries '[
     {
-      "type": "implicit_constraint",
+      "type": "constraint",
       "captured_at_stage": 2,
       "trigger": "hard_gate_diff",
-      "inject_into_stages": [2],
+      "inject_into_stages": [2, 3, 5],
       "inject_as": "constraint",
       "scope": "project",
-      "summary": "{用户确认的一句话摘要}",
-      "detail": "{AI原判断} → {用户修改为} — {业务原因}",
+      "summary": "{一句话陈述性知识，描述业务约束或事实}",
       "confidence": 9
     }
   ]' || true
 ```
 
 Field selection guide:
-- `type`: `implicit_constraint` for new constraints the AI missed; `ai_correction` for wrong AI judgments
-- `inject_into_stages`: `[2]` for constraints; `[1, 2]` for AI corrections
-- `inject_as`: `constraint` for constraints; `past_error` for AI corrections
+- `type`: `constraint` for business/architectural rules the AI missed; `correction` for wrong AI judgments
+- `inject_into_stages`: `[2, 3, 5]` for constraints; `[1, 2, 3, 5]` for corrections
+- `inject_as`: `constraint` for constraints; `warning` for corrections
 - `scope`: `project` if this applies to future features; `feature` if one-time only
+- `summary`: 写成陈述性事实，例如"灰度开关必须走 Lion 配置，不能用环境变量，因为环境变量在容器重启后不可动态调整"
 - `confidence`: 9–10 if the user explicitly confirmed; 7–8 if inferred from context
 
 Write one entry per finding. Failure to write does not block the upload step (`|| true`).

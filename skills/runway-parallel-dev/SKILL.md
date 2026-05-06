@@ -171,15 +171,7 @@ node "$RUNWAY_TOOLS" knowledge-append \
 
 ## Step 3: Two-Phase Review (per task)
 
-**Per-task flow (no cross-task gating within a wave):**
-```
-implementer done → Phase 1 → [repair loop, max 2 rounds] → Phase 2 → [fix loop, max 2 rounds] → ✅ done
-                                                        ↓ still NON_COMPLIANT after round 2
-                                                  DONE_WITH_CONCERNS → log to report
-```
-Tasks in the same wave advance through this flow **independently** — Task A may be in Phase 2 while Task B is still in Phase 1. There is no cross-task synchronisation within the two-phase review. The wave sync point (Step 4) waits for every task to reach a terminal state (`✅ done` or `⏸️ BLOCKED`) before running integration verification.
-
-**Round counting is per-task per-phase**: Phase 1 repair rounds and Phase 2 fix rounds are counted independently for each task. A repair round in Phase 1 does not consume a fix round in Phase 2.
+A task is **done** only after BOTH phases complete without remaining Critical issues. The wave sync point is: every task in the wave has reached `✅ done` or `⏸️ BLOCKED` status — only then does the wave gate run.
 
 ### Phase 1 — Spec Compliance
 
@@ -194,18 +186,13 @@ Dispatch a spec-reviewer subagent. Provide:
 - Passing test evidence matches the task's expected output
 - No task step was silently skipped or substituted
 
-Returns: `✅ COMPLIANT` or `❌ NON_COMPLIANT: {reason}`.
+Returns: `✅ COMPLIANT` or `❌ NON_COMPLIANT: {item} at {file:line}`.
 
-NON_COMPLIANT examples:
-- `"Task step 3 'add input validation' — no corresponding change found in commit {sha}"`
-- `"Failing test evidence missing — implementer only provided passing output"`
-- `"Test output '{actual}' does not match task's expected '{expected}'"`
-
-On NON_COMPLIANT: send the specific items back to the implementer to fix, then re-dispatch spec reviewer. **Max 2 repair rounds (per task, Phase 1 only).** After round 2 still NON_COMPLIANT → mark `DONE_WITH_CONCERNS`, log to execution report, proceed to Phase 2. Do not pause for user confirmation.
+On NON_COMPLIANT: send the specific non-compliant items back to the implementer subagent to fix, then re-dispatch the spec reviewer. **Max 2 repair rounds per Phase 1.** If still non-compliant after round 2, mark task `DONE_WITH_CONCERNS` and log to execution report. Treat repair loops as internal work — do not pause for user confirmation.
 
 ### Phase 2 — Code Quality
 
-Dispatch a code-quality-reviewer subagent **only after Phase 1 returns COMPLIANT** (or after Phase 1 exits as DONE_WITH_CONCERNS). Provide:
+Dispatch a code-quality-reviewer subagent **only after Phase 1 returns COMPLIANT**. Provide:
 - `BASE_SHA` — commit before this task began
 - `HEAD_SHA` — `git rev-parse HEAD` after implementer's final commit
 - Implementer's report including any concerns raised
@@ -219,13 +206,13 @@ Dispatch a code-quality-reviewer subagent **only after Phase 1 returns COMPLIANT
 
 Returns issues tagged `Critical` / `Important` / `Minor`.
 
-| Severity | Definition | Example | Action |
-|----------|-----------|---------|--------|
-| **Critical** | Breaks correctness, security, or data integrity | N+1 in hot path; exposed secret; missing null guard causing NPE | Must fix before task is marked done — send back to implementer. **Max 2 fix rounds (per task, Phase 2 only).** If unfixed after round 2, escalate per Step 4 rules. |
-| **Important** | Degrades maintainability or performance noticeably | Business term misnamed; error silently swallowed; slight duplication | Log to execution report for runway-code-review-fix (Stage 6). Do not block task completion. |
-| **Minor** | Style, naming preference, or micro-optimisation | Unused import; minor variable name; formatting | Log to execution report. Optional fix. |
+| Severity | Definition | Action |
+|----------|-----------|--------|
+| **Critical** | Breaks correctness, security, or data integrity | Must fix before task is marked done — send back to implementer. **Max 2 fix rounds per Phase 2.** If unfixed after round 2, escalate per Step 4 rules. |
+| **Important** | Degrades maintainability or performance noticeably | Log to execution report for runway-code-review-fix (Stage 6). Do not block task completion. |
+| **Minor** | Style, naming, or micro-optimisation | Log to execution report. Optional fix. |
 
-Critical-fix loops are internal execution work, not user review gates.
+Critical-fix loops are internal execution work, not user review gates. Phase 2 max-2-round cap is independent of Phase 1's cap — each phase counts its own rounds separately.
 
 ## Step 4: Wave Completion Gate
 

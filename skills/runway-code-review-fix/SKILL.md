@@ -140,25 +140,13 @@ Each reviewer tags every finding with an **Issue Key** (`LOGIC-001`, `SEC-001`, 
 
 ## Step 3: Aggregate Findings
 
-Before fixing anything, group findings into clusters using these mechanical rules:
+Before fixing anything:
+- cluster duplicate findings across reviewers into one canonical issue;
+- keep a list of which reviewers raised the issue;
+- preserve the highest severity assigned to the cluster;
+- note whether the issue is in scope, out of scope, incorrect, or YAGNI.
 
-**Two findings belong in the same cluster when ALL three conditions are true:**
-1. Same `file`
-2. `line` numbers differ by ≤ 10 (same function scope)
-3. `how to fix` core action is the same — compare the first verb+object:
-   - `"add null check"` == `"add null check"` → same cluster
-   - `"add null check"` ≠ `"add @NonNull annotation"` → different clusters
-   - `"add null check"` ≠ `"add input validation"` → different clusters
-
-**Why use `how to fix` not `what is wrong`:** Three reviewers describe the same line from different angles (functional/security/quality). If the fix is the same action, one commit resolves all of them. If fixes differ, they are independent — do not merge.
-
-For each cluster:
-- assign the canonical Issue Key from the highest-severity finding
-- record all contributing reviewers (`Reviewers: R1, R2`)
-- use the highest severity across contributors
-- note disposition: `in-scope` / `out-of-scope` / `incorrect` / `YAGNI`
-
-Use issue clusters in the review report so the same problem is not fixed or rejected multiple times. Maintain the cluster table across rounds — same canonical Issue Key enables the 3-round repeat detection in Step 5.
+Use issue clusters in the review report so the same problem is not fixed or rejected multiple times.
 
 ## Step 4: Process Each Finding
 

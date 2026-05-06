@@ -81,14 +81,14 @@ ambiguity = 1 - (goal×0.40 + constraints×0.30 + criteria×0.30) / 100
 
 Use the same anchors for all three dimensions so scoring is consistent:
 
-| Score | Meaning |
-|------:|---------|
-| 20 | Mostly unclear. Multiple plausible interpretations remain. |
-| 50 | Partially clear. Core intent is visible, but important gaps block confident delivery. |
-| 80 | Clear enough to implement with only minor follow-up questions. |
-| 100 | Unambiguous. A reviewer could derive the same scope and acceptance tests independently. |
+| Score | Meaning | Evidence test |
+|------:|---------|---------------|
+| 20 | Mostly unclear. Multiple plausible interpretations remain. | Two independent readers would describe the scope differently; no single sentence captures the goal. |
+| 50 | Partially clear. Core intent is visible, but important gaps block confident delivery. | Goal can be stated in one sentence, but at least one constraint or success criterion is missing or contradictory. |
+| 80 | Clear enough to implement with only minor follow-up questions. | A developer could start coding with ≤ 2 clarification questions; all major edge cases are named even if not fully specified. |
+| 100 | Unambiguous. A reviewer could derive the same scope and acceptance tests independently. | Two independent readers produce identical AC lists with no open items; no assumptions needed. |
 
-When scoring, record 1–2 sentences explaining why the dimension received that score. The explanation should point to evidence in the PRD or identify the missing information.
+When scoring, record 1–2 sentences explaining why the dimension received that score. The explanation must cite specific text from the PRD (quote or section reference) or name the exact missing information.
 
 ## Step 3: Socratic Clarification (only if ambiguity > 20%)
 
@@ -112,12 +112,19 @@ If ambiguity is still > 20% after 20 rounds:
 - Stop asking more questions.
 - Produce the best current draft with `Confirmed / Assumed / Open` sections filled in.
 - Clearly mark the remaining blockers.
-- Ask the user to choose one of these actions:
-  1. answer the remaining blockers now;
-  2. approve the spec as-is with open questions recorded;
-  3. pause the workflow until more information exists.
+- Present the following message and **STOP. Do not proceed until the user replies.**
 
-Do not upload until the user explicitly chooses option 2 or resolves the blockers.
+> "已完成 20 轮澄清，以下问题仍未解决：{list blockers}。请选择：
+> 1. 现在回答上述问题
+> 2. 接受规格现状（将未解决项记录为 Open）
+> 3. 暂停流程，待信息补全后继续"
+
+**Wait for the user's explicit reply before taking any further action.** Do not auto-select an option, do not proceed to Step 4, and do not upload anything.
+
+Only continue after the user replies with their choice:
+- Choice 1 → resume clarification with the user's answers, then proceed to Step 4.
+- Choice 2 → proceed to Step 4 with open items retained.
+- Choice 3 → halt the workflow entirely and confirm to the user that it is paused.
 
 ## Step 4: Write Requirements Spec
 

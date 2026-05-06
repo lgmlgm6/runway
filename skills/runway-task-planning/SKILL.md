@@ -126,7 +126,7 @@ Three areas to verify:
    | typescript-or-javascript | `grep -rn "$symbol" src/ --include="*.ts" --include="*.tsx" --include="*.js"` |
    | python | `grep -rn "$symbol" . --include="*.py"` |
 
-   Classify each result as CONFIRMED / MISSING / ASSUMED. For each MISSING item, add a Wave 0 prerequisite task before proceeding.
+   Classify each result as CONFIRMED / MISSING / ASSUMED. For each MISSING item, add a Wave 0 prerequisite task before proceeding. **Wave 0 grouping rule:** All MISSING items that have no dependency on each other go into the **same Wave 0** as parallel tasks. If MISSING item B depends on MISSING item A (e.g., a class must exist before a method on it can be added), place A in Wave 0 and B in Wave 0.1. Do not create a separate Wave 0 per MISSING item unless a dependency chain forces it.
 
 2. **Cross-module field propagation** — for any new field that must flow across module boundaries (e.g., Request → BO → Converter → another module's BO → ES query), trace the **complete call chain end-to-end** before writing tasks:
    - List every hop: `ModuleA.ClassX` → `ModuleB.ClassY` → `ModuleC.ClassZ`
@@ -210,7 +210,14 @@ Run through `references/plan-review-checklist.md` before presenting. Key checks:
 
 ### Wave Conflict Auto-Detection (mandatory before returning control)
 
-For each wave, collect all primary files and verify uniqueness. If duplicates are found, auto-split the conflicting tasks into sequential sub-waves before returning control to the orchestrator. See `references/dependency-verification.md` for the detection pattern and fix procedure.
+For each wave, collect all primary files and verify uniqueness. If duplicates are found, follow this algorithm to auto-split:
+
+1. **Identify conflicts:** For wave N, list all tasks sharing the same primary file. Group them: `conflicting_group = [Task N.A, Task N.B, …]`.
+2. **Assign sub-wave numbers:** Promote the first task in the group to wave N (unchanged). Each subsequent conflicting task becomes wave N+0.1, N+0.2, … (or use the next available integer wave if N+0.1 collisions exist). Renumber all downstream waves accordingly to preserve ordering.
+3. **Update dependencies:** For each promoted task (e.g., Task N.B now in wave N+0.1), add `Depends on: Task N.A` explicitly. Cascade: any task that previously depended on wave N now depends on the last sub-wave in the split group.
+4. **Re-run the check:** After splitting, repeat the uniqueness check on all waves until no conflicts remain.
+
+See `references/dependency-verification.md` for the detection pattern and fix procedure.
 
 **Do NOT return the plan until all wave conflicts are resolved.** This check is mandatory, not optional.
 

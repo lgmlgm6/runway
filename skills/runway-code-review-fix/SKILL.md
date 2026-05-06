@@ -106,6 +106,11 @@ Dispatch all three simultaneously using the full prompt templates from `referenc
 - `{接口协议变更}` — paste Section 三 from the tech spec
 - `{验证策略}` — paste Section 五 from the tech spec
 
+**If spec artifacts are unavailable:**
+- Requirements spec missing → omit `{AC table}` and `{TC list}`; Reviewer 1 skips AC coverage check and focuses on logic correctness and edge cases only. Note `AC coverage: skipped — spec unavailable` in the report.
+- Tech spec missing → omit `{接口协议变更}` and `{验证策略}`; all reviewers review the diff without contract context. Note `Contract review: skipped — tech spec unavailable` in the report.
+- Both missing → proceed with diff-only review. This is valid for hotfix branches or code-only review requests.
+
 **Reviewer 1 — Functional & Logic** (use template in `references/reviewer-prompts.md`)
 
 Key focus areas:
@@ -140,13 +145,20 @@ Each reviewer tags every finding with an **Issue Key** (`LOGIC-001`, `SEC-001`, 
 
 ## Step 3: Aggregate Findings
 
-Before fixing anything:
-- cluster duplicate findings across reviewers into one canonical issue;
-- keep a list of which reviewers raised the issue;
-- preserve the highest severity assigned to the cluster;
-- note whether the issue is in scope, out of scope, incorrect, or YAGNI.
+Before fixing anything, group findings into **issue clusters** by root cause:
 
-Use issue clusters in the review report so the same problem is not fixed or rejected multiple times.
+Two findings belong in the same cluster when they point to the **same file + same root cause** (even if the Issue Keys differ or the reviewers describe it differently). Examples:
+- LOGIC-001 "missing null check in UserService:42" + QUAL-001 "UserService:42 will throw NPE" → same cluster
+- SEC-001 "SQL injection in query builder" + LOGIC-002 "query builder concatenates user input" → same cluster
+- LOGIC-001 "AC-03 has no test" + QUAL-001 "test coverage is low" → **different clusters** (different files, different root causes)
+
+For each cluster:
+- assign a **canonical Issue Key** (use the highest-severity reviewer's key)
+- record which reviewers contributed (`Reviewers: R1, R3`)
+- use the **highest severity** assigned across contributors
+- note disposition: `in-scope`, `out-of-scope`, `incorrect`, or `YAGNI`
+
+Maintain a running cluster table across rounds — same canonical Issue Key across rounds enables the 3-round repeat detection in Step 5.
 
 ## Step 4: Process Each Finding
 

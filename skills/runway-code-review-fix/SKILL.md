@@ -140,13 +140,33 @@ Each reviewer tags every finding with an **Issue Key** (`LOGIC-001`, `SEC-001`, 
 
 ## Step 3: Aggregate Findings
 
-Before fixing anything:
-- cluster duplicate findings across reviewers into one canonical issue;
-- keep a list of which reviewers raised the issue;
-- preserve the highest severity assigned to the cluster;
-- note whether the issue is in scope, out of scope, incorrect, or YAGNI.
+Before fixing anything, group findings into clusters. Two findings belong in the same cluster when **all three** conditions hold:
 
-Use issue clusters in the review report so the same problem is not fixed or rejected multiple times.
+1. **Same file**
+2. **Line numbers within 10 of each other** (same function scope)
+3. **Same fix action** — normalize each `how to fix` to `verb + primary object`, lowercase, strip articles and qualifiers:
+   - `"add null check before accessing field"` → `add null check` ✓ same
+   - `"add a null check"` → `add null check` ✓ same  
+   - `"add @NonNull annotation"` → `add annotation` ✗ different fix, different cluster
+   - `"add input validation"` → `add validation` ✗ different fix, different cluster
+
+**End-to-end example** — three reviewers report on `UserService.java:45`:
+
+| Reviewer | Issue Key | How to fix (raw) | Normalized |
+|----------|-----------|-----------------|------------|
+| R1 Functional | LOGIC-001 Critical | "add null check before accessing userRole" | add null check |
+| R2 Security | SEC-001 Critical | "add null check before field access" | add null check |
+| R3 Quality | QUAL-001 Important | "add @NonNull annotation to parameter" | add annotation |
+
+Result: LOGIC-001 + SEC-001 → **one cluster** (same file, line 45, same fix). QUAL-001 → **separate cluster** (different fix action). Fix the LOGIC-001 cluster once; QUAL-001 gets its own fix.
+
+For each cluster:
+- assign the canonical Issue Key from the highest-severity contributor
+- record all contributing reviewers (`Reviewers: R1, R2`)
+- use the highest severity across contributors
+- note disposition: `in-scope` / `out-of-scope` / `incorrect` / `YAGNI`
+
+Maintain the cluster table across rounds using the canonical Issue Key — the same key appearing unresolved in re-review output triggers the 3-round repeat detection in Step 5.
 
 ## Step 4: Process Each Finding
 

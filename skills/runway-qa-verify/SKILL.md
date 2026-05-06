@@ -58,6 +58,8 @@ If this is a monorepo or workspace-based project, record whether commands run fr
 
 ### Each round
 
+**Java Maven multi-module projects:** If the project uses Maven multi-module layout, run `mvn install -DskipTests -q` from the project root **before each round's test command** (including fix rounds 2–5). Sub-module tests fail with `${revision}` unresolved errors if the root install is skipped after a code change.
+
 Run verification and capture exit code explicitly. Avoid `set -o pipefail` — it is incompatible with zsh and some CI environments:
 
 ```bash
@@ -140,6 +142,8 @@ Read the test method body (from the line containing `TC-{编号}` to the next me
 | TypeScript/JS | `expect(`, `assert.`, `toBe(`, `toEqual(`, `toContain(` |
 | Python | `assert `, `assertEqual`, `assertIn`, `pytest.raises` |
 | Go | `t.Error`, `t.Fatal`, `assert.Equal`, `require.Equal` |
+
+**Java `verify()` clarification:** A Mockito `verify(mock, times(N)).method(...)` call **counts as a substantive assertion** — it asserts that a specific interaction occurred. Bare `when(...).thenReturn(...)` stubs with no `verify()` or `assert*` do **not** count.
 
 If the method body contains **only** setup/mock calls with no assertion → status = ⚠️ 断言缺失 (method exists but does not verify behavior)
 

@@ -121,6 +121,15 @@ Classify the work on two independent axes before writing the tech spec:
 
 Escalate only when the design risk justifies it. Do not send routine work through the heaviest path by default.
 
+**Boundary examples for common ambiguous cases:**
+- Add 1 optional response field to an existing API, no downstream consumers affected → **L0** (localized, no contract break)
+- Add 1 required request field to an existing API, or change field type/semantics → **L1** (contract change that upstream callers must adapt to)
+- Add a new internal service method with no external interface change → **L0**
+- Add a new external API endpoint used by 2+ other teams → **L1**
+- Change a DB column type on a table with >1M rows → **L2** (schema migration risk)
+- Add a Lion config flag to gate an existing feature → **L0** (no structural change)
+- Introduce a new cross-module async event (Mafka topic) → **L1** (new contract, observability questions)
+
 ### Deliberate mode trigger rule
 
 Trigger **deliberate mode** if any of the following apply:
@@ -461,7 +470,7 @@ Output format:
 **Level 1:**
 - Planner → Architect.
 - If Architect has no blocking `[MUST]` items, proceed to Step 5 self-review.
-- If Architect returns blocking `[MUST]` items, run one targeted Planner revision addressing all `[MUST]` items, then run Architect once more and stop there.
+- If Architect returns blocking `[MUST]` items, run one targeted Planner revision addressing all `[MUST]` items, then run Architect once more and stop there regardless of remaining `[MUST]` items. After the second Architect pass, do not run another revision cycle. If the second Architect pass still has unresolved `[MUST]` items, do not loop again — list them in the Step 6 Hard Gate presentation with the label "⚠️ Architect 仍有未解决 [MUST] 项，请 review 后决定是否继续", then let the user decide before proceeding.
 
 **Level 2:**
 - Planner → Architect → Critic.

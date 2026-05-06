@@ -8,6 +8,27 @@ version: 0.1.0
 
 End-to-end development pipeline. Takes a xuecheng PRD link and a ones work item ID, drives all stages to completion, pauses at the Stage 1 and Stage 2 Hard Gates for user confirmation, and auto-advances from Stage 3 onward unless blocked.
 
+## TL;DR — 速查
+
+**何时触发：** 用户给 PRD 链接 + ONES ID，意图是"从需求走到可工作代码"。
+**何时不触发：** 仅讨论方案、仅 review 代码、仅修小 bug、仅解释代码 → 保持当前模式，不进入 Stage 1。
+
+**需要提前准备的输入：**
+1. xuecheng PRD URL（`km.sankuai.com/collabpage/...`）
+2. ONES work item ID
+3. MIS（如 `.runway/project.json` 已有则自动跳过）
+
+**流水线节奏：**
+- Stage 1 → **HARD GATE**（用户确认需求规格）
+- Stage 2 → **HARD GATE**（用户批准技术方案）
+- Stage 3 → 7 → 自动推进，遇 BLOCKED 才停
+
+**出错总原则：** 本地 fallback（`.runway/docs/`）> 重试一次 > 向用户询问。
+
+**快速恢复：** 检查 `.runway/checkpoint-*.json` 是否存在，有则提示恢复。
+
+---
+
 ## Pipeline Overview
 
 ```
@@ -57,20 +78,7 @@ If the file does not exist, these fields will be collected during the workflow a
 
 **Step 0b — Load project knowledge:**
 
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-
-if [[ -f .runway/knowledge.json ]]; then
-  KNOWLEDGE_COUNT=$(jq 'length' .runway/knowledge.json 2>/dev/null || echo 0)
-  echo "📚 项目知识库：${KNOWLEDGE_COUNT} 条"
-  echo "   最近沉淀（pitfall / pattern）："
-  jq -r '.[] | select(.type == "pitfall" or .type == "pattern") | "  [\(.type)] \(.summary)"' \
-    .runway/knowledge.json 2>/dev/null | tail -5
-fi
-```
-
-These entries inform the current workflow — knowledge.json entries are injected automatically at each stage; pay attention to any `pitfall` learnings that may affect the current feature.
+If `.runway/knowledge.json` exists, print its count and the last 5 `pitfall`/`pattern` entries as a reminder. Pay attention to any `pitfall` that may affect the current feature. （命令详见 `references/project-setup.md`）
 
 **Step 0c — Check for unfinished work (checkpoint restore):**
 
@@ -91,8 +99,16 @@ If one or more checkpoint files exist, display them to the user:
 
 If user says yes:
 1. Read the checkpoint file and inspect the latest canonical stage/artifact state
-2. Print a compact restored status summary for the user
-3. Resume from `current_stage` (skip all earlier stages)
+2. **Validate checkpoint integrity**: verify that `current_stage` is a number between 1–7 and that all fields required by that stage are present (e.g., Stage 3+ requires `prd_content_id` and `requirements_spec_content_id`; Stage 5+ also requires `branch_name` and `base_sha`). If the file cannot be parsed (malformed JSON) or any required field is missing/null, print:
+   ```
+   ⚠️ Checkpoint 文件损坏或字段缺失，无法自动恢复。
+   - 问题：{描述缺失字段或解析错误}
+   - 建议：从 Stage 1 重新开始，或手动修复 .runway/checkpoint-{ones_work_item_id}.json 后重试。
+   是否从 Stage 1 重新开始？(y/n)
+   ```
+   If the user confirms, proceed with a fresh workflow from Stage 1.
+3. Print a compact restored status summary for the user
+4. Resume from `current_stage` (skip all earlier stages)
 
 If user says no: proceed with a fresh workflow starting from Stage 1.
 
@@ -104,7 +120,13 @@ User provides:
 3. **MIS** — skip if loaded from project memory
 4. **xuecheng parent document ID** (optional) — the parent document under which requirements spec and tech spec will be uploaded. If not provided, ask once: "请提供学城父文档ID（或父文档链接），用于上传需求规格和技术方案文档。"
 
-Extract contentId from PRD URL directly. Extract parentId from parent document URL if provided (`km.sankuai.com/collabpage/{parentId}`). Do not ask for confirmation on items already provided or loaded from project memory.
+Extract contentId from PRD URL directly using these rules:
+- `/collabpage/2748397739` → contentId = `2748397739`
+- `/collabpage/2748397739?xxx=yyy` → contentId = `2748397739` (strip query string)
+- `/page/2748397739` → contentId = `2748397739` (same numeric segment after `/page/`)
+- If the URL contains no recognisable numeric segment, ask the user: "无法从链接中解析 contentId，请直接提供学城文档 ID（纯数字）。"
+
+Extract parentId from parent document URL if provided (`km.sankuai.com/collabpage/{parentId}`). Do not ask for confirmation on items already provided or loaded from project memory.
 
 ## Auto-Advance Rule
 
@@ -158,19 +180,7 @@ After confirmation, print:
 
 Record the returned xuecheng contentId as `requirements_spec_contentId`.
 
-Save checkpoint after Stage 1 Hard Gate:
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" checkpoint-write \
-  --root "$PWD" \
-  --ones-id "{ones_work_item_id}" \
-  --citadel-parent-id "{citadel_parent_id}" \
-  --prd-content-id "{prd_content_id}" \
-  --requirements-spec-content-id "{requirements_spec_contentId}" \
-  --current-stage 2 \
-  --updated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-```
+Save checkpoint after Stage 1 Hard Gate with `checkpoint-write --current-stage 2`. （命令详见 `references/state-management.md`）
 
 ## Stage 2: Tech Design
 
@@ -192,20 +202,7 @@ After approval, print:
 
 Record the returned xuecheng contentId as `tech_spec_contentId`.
 
-Update checkpoint after Stage 2 Hard Gate:
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" checkpoint-write \
-  --root "$PWD" \
-  --ones-id "{ones_work_item_id}" \
-  --citadel-parent-id "{citadel_parent_id}" \
-  --prd-content-id "{prd_content_id}" \
-  --requirements-spec-content-id "{requirements_spec_contentId}" \
-  --tech-spec-content-id "{tech_spec_contentId}" \
-  --current-stage 3 \
-  --updated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-```
+Update checkpoint after Stage 2 Hard Gate with `checkpoint-write --current-stage 3`. （命令详见 `references/state-management.md`）
 
 ## Stage 3: Task Planning
 
@@ -225,49 +222,11 @@ After the skill returns, automatically print:
 
 Record the plan path as `plan_path`.
 
-Update checkpoint after Stage 3 completion:
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" checkpoint-write \
-  --root "$PWD" \
-  --ones-id "{ones_work_item_id}" \
-  --citadel-parent-id "{citadel_parent_id}" \
-  --prd-content-id "{prd_content_id}" \
-  --requirements-spec-content-id "{requirements_spec_contentId}" \
-  --tech-spec-content-id "{tech_spec_contentId}" \
-  --plan-path "{plan_path}" \
-  --current-stage 4 \
-  --updated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-```
+Update checkpoint after Stage 3 completion with `checkpoint-write --current-stage 4`. （命令详见 `references/state-management.md`）
 
 ## Stage 4: Create Branch
 
-Use non-interactive commands only. Never use `ones bc` (it requires interactive app selection and blocks automation).
-
-```bash
-# Step 1: Generate branch name
-ones bg -i {ones_work_item_id}
-# → branch_name = "feature/PTAP-{id}/{description}"
-
-# Step 2: Get current repo remote URL to match appId
-git remote get-url origin
-# → e.g. git@git.sankuai.com:mp-video-tech/freelance-platform.git
-
-# Step 3: Find appId by matching remote URL in space apps
-ones space-apps -p {spaceId} --json 2>/dev/null | grep -B2 "{repo-name-from-remote}"
-# → extract appId from matching entry
-
-# Step 4: Associate branch non-interactively (no prompts)
-ones ba -n "{branch_name}" -p {spaceId} -a {appId} -t {ones_work_item_id} --branch-type feature
-
-# Step 5: Create and checkout local branch
-git checkout -b {branch_name}
-```
-
-If `ones space-apps` fails or appId cannot be matched automatically:
-- Fall back to: `ones ba` with the known appId from the project's CLAUDE.md or prior state
-- If no appId available, ask the user once: "请提供ONES应用ID（appId），用于关联分支"
+Use non-interactive commands only. Never use `ones bc` (it requires interactive app selection and blocks automation). Flow: `ones bg` → match appId via `ones space-apps` → `ones ba` → `git checkout -b`. （完整命令详见 `references/branch-creation.md`）
 
 Record:
 - `branch_name`
@@ -287,101 +246,21 @@ Print:
 - 进入 Stage 5：并行开发
 ```
 
-Update checkpoint with branch and sha:
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" checkpoint-write \
-  --root "$PWD" \
-  --ones-id "{ones_work_item_id}" \
-  --citadel-parent-id "{citadel_parent_id}" \
-  --prd-content-id "{prd_content_id}" \
-  --requirements-spec-content-id "{requirements_spec_contentId}" \
-  --tech-spec-content-id "{tech_spec_contentId}" \
-  --plan-path "{plan_path}" \
-  --branch-name "{branch_name}" \
-  --base-sha "{BASE_SHA}" \
-  --current-stage 5 \
-  --updated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-```
+Update checkpoint with branch and sha using `checkpoint-write --current-stage 5`. （命令详见 `references/state-management.md`）
 
 ### 保存项目记忆
 
-如果 `.runway/project.json` 不存在，在此时自动生成并提示用户确认写入：
-
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-PROJECT_MEMORY_RESULT=$(node "$RUNWAY_TOOLS" project-memory-init \
-  --root "$PWD" \
-  --mis "{mis}" \
-  --app-id "{app_id}" \
-  --ones-space-id "{ones_space_id}")
-if echo "$PROJECT_MEMORY_RESULT" | jq -e '.created == true' > /dev/null; then
-  echo "✅ 项目记忆已保存到 .runway/project.json — 下次运行将自动跳过固定参数询问。"
-  echo "   如需修改（build_cmd / test_cmd / lint_cmd / notes），请直接编辑该文件。"
-fi
-```
-
-```bash
-# Protect .runway/ from accidental git commits (only if this is a git repo)
-if git rev-parse --git-dir > /dev/null 2>&1; then
-  GITIGNORE="$(git rev-parse --show-toplevel)/.gitignore"
-  for entry in ".runway/" ".claude/runway-state/"; do
-    if ! grep -qF "$entry" "$GITIGNORE" 2>/dev/null; then
-      printf '\n# Runway local state — sensitive project config (auto-added by runway)\n%s\n' "$entry" >> "$GITIGNORE"
-      echo "✅ .gitignore: 已添加 $entry"
-    fi
-  done
-fi
-```
+如果 `.runway/project.json` 不存在，在此时运行 `project-memory-init` 自动生成并提示用户确认写入；同时确保 `.runway/` 已加入 `.gitignore`。（命令详见 `references/project-setup.md`）
 
 ### 激活流水线续命循环
 
-在进入 Stage 5 之前，创建 pipeline 状态文件让 Stop hook 接管续命：
-
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-mkdir -p .runway/tmp
-cat > .runway/tmp/pipeline-stage4-prompt.md << 'EOF'
-你是 Runway 编排器，Stage 4-7 流水线正在运行中。立即从当前阶段继续，不要等待用户确认。
-
-检查当前状态并继续：
-- Stage 5（runway-parallel-dev）未完成 → 立即调用
-- Stage 5 完成但 Stage 6（runway-code-review-fix）未完成 → 立即调用
-- Stage 6 完成但 Stage 7（runway-qa-verify）未完成 → 立即调用
-- Stage 7 完成且全部通过 → 执行 Stage 8 Retrospective → 打印 Development Complete 摘要，更新 ONES 状态，然后输出：<promise>RUNWAY STAGES 5-7 COMPLETE</promise>
-
-**暂停规则（遇到以下情况必须先停用 pipeline state 再暂停）：**
-- Stage 5/6/7 出现真正 blocker（无法自动解决）
-- 需要用户提供 appId / 登录 / 人工决策
-- 用户明确说 stop / cancel
-
-停用命令：`node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false`
-
-不要等待用户输入。不要总结后询问"是否继续"。直接进入下一个待执行阶段。
-EOF
-node "$RUNWAY_TOOLS" state-init \
-  --root "$PWD" \
-  --name pipeline.local.md \
-  --mode pipeline \
-  --max-iterations 200 \
-  --completion-promise "RUNWAY STAGES 5-7 COMPLETE" \
-  --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
-  --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --prompt-file .runway/tmp/pipeline-stage4-prompt.md
-```
+在进入 Stage 5 之前，运行 `state-init` 创建 `pipeline.local.md` 让 Stop hook 接管 Stage 5-7 续命。（完整模板详见 `references/pipeline-activation.md`）
 
 Then **immediately proceed to Stage 5 without waiting for user input**.
 
 ## Stage 5: Parallel Dev
 
-Before invoking, load project notes to inject as context:
-```bash
-PROJECT_NOTES=$(jq -r '(.notes // "") + "\n" + ((.known_issues // []) | join("\n"))' .runway/project.json 2>/dev/null)
-```
-If `PROJECT_NOTES` is non-empty, prepend it to the skill invocation context: `"项目已知约束:\n{PROJECT_NOTES}"`
+Before invoking, load `PROJECT_NOTES` from `.runway/project.json` (`.notes` + `.known_issues`). If non-empty, prepend as `"项目已知约束:\n{PROJECT_NOTES}"` to the skill context. （详见 `references/context-injection.md`）
 
 Invoke the **runway-parallel-dev** skill with:
 - plan path from Stage 3
@@ -395,20 +274,7 @@ No Hard Gate here — runs to completion automatically. BLOCKED tasks are surfac
 Do not stop after Stage 5 skill startup, plan load, tracker creation, wave banners, or execution-report packaging. Those are internal progress events, not user approval points.
 After Stage 5 returns a completed execution report, continue directly into Stage 6 in the same turn unless Stage 5 explicitly paused under its allowed blocker conditions.
 
-**Escalation rule:** If a task is truly blocked and requires human input, first deactivate the pipeline state before pausing:
-```bash
-node "$RUNWAY_TOOLS" state-update \
-  --root "$PWD" \
-  --name pipeline.local.md \
-  --active false
-```
-After the user resolves the blocker and says "continue", reactivate:
-```bash
-node "$RUNWAY_TOOLS" state-update \
-  --root "$PWD" \
-  --name pipeline.local.md \
-  --active true
-```
+**Escalation rule:** If a task is truly blocked and requires human input, deactivate the pipeline state before pausing; reactivate after user resolves. （命令详见 `references/state-management.md`）
 
 After completion, print:
 ```
@@ -479,15 +345,7 @@ Then print:
 - Create PR / submit for review
 ```
 
-完成后，释放 Stop hook 并清理 pipeline 状态、临时文件，同时删除 checkpoint 文件（工作项已完成）：
-
-```bash
-rm -f .claude/runway-state/pipeline.local.md
-rm -f .claude/runway-state/triangle-loop.local.md
-rm -f .runway/checkpoint-{ones_work_item_id}.json
-rm -rf .runway/tmp/
-rm -f "{plan_path}"
-```
+完成后，清理 pipeline 状态、临时文件和 checkpoint 文件。（命令详见 `references/cleanup.md`）
 
 然后输出流水线完成信号（Stop hook 检测到此信号后允许正常退出）：
 
@@ -508,67 +366,15 @@ Read the three reports produced this workflow:
 - `.runway/docs/{ones_id}/cr-report.md` — look for recurring issue patterns, rejected suggestions
 - `.runway/docs/{ones_id}/qa-report.md` — look for failure rounds, repeated failures, env issues
 
-For each meaningful finding, append one entry to `.runway/knowledge.json` via `knowledge-append`:
-
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" knowledge-append \
-  --root "$PWD" \
-  --ones-id "{ones_id}" \
-  --entries '[{
-    "type": "pitfall",
-    "captured_at_stage": 8,
-    "trigger": "retrospective",
-    "inject_into_stages": [3, 5],
-    "inject_as": "warning",
-    "scope": "project",
-    "summary": "{一句话陈述性知识}",
-    "confidence": 8
-  }]' || true
-```
-
-- `type`: `pitfall` for technical traps; `pattern` for reusable correct approaches
-- `inject_as`: `warning` for pitfalls; `pattern` for patterns
-- `summary`: 写成陈述性事实，不写现象-根因结构
-- Only record findings with genuine reuse value. Skip if nothing notable occurred.
+For each meaningful finding, append one entry to `.runway/knowledge.json` via `knowledge-append`. Only record findings with genuine reuse value; skip if nothing notable occurred. （命令模板详见 `references/state-management.md`）
 
 ### Step 8a-extra — Review captured knowledge entries
 
-检查本次流水线中捕获的 knowledge.json 条目（`source_ones_id` = 当前 `ones_id`）：
-
-```bash
-jq --arg id "{ones_id}" '[.[] | select(.source_ones_id == $id)]' .runway/knowledge.json 2>/dev/null
-```
-
-对每条条目做简单评估：
-- `scope = "feature"` 的条目：判断是否应提升为 `"project"`（对其他需求也适用）
-- `confidence < 7` 的条目：判断是否应删除（可能是噪音）
-
-如有需要调整，直接编辑 `.runway/knowledge.json`。这是人工复盘点，非自动化步骤，可跳过。
+检查本次流水线中捕获的条目，评估 scope 是否应从 `feature` 提升为 `project`，以及 `confidence < 7` 的条目是否应删除。这是人工复盘点，可跳过。（详见 `references/retrospective-detail.md`）
 
 ### Step 8b — Update project knowledge file
 
-Append discovered build commands, known issues, and code conventions to `.runway/project-knowledge.md` (create if it doesn't exist). Use this format:
-
-```bash
-mkdir -p .runway
-cat >> .runway/project-knowledge.md << 'EOF'
-
-## 项目约定（runway 自动维护，{date}）
-
-### 构建命令
-- Build: {build_cmd}
-- Test: {test_cmd}
-
-### 已知陷阱
-- [{date}] {trap description}
-EOF
-```
-
-**Only append entries that are new** — check if the content already exists before appending to avoid duplicates.
-
-Treat `.runway/project-knowledge.md` as runway's canonical auto-maintained local knowledge file. Do **not** auto-edit the project root `CLAUDE.md`; that file remains human-curated and may still be read as an input elsewhere. If a discovery later becomes a stable long-term convention, the user may manually promote it into `CLAUDE.md`.
+Append newly discovered build commands, known issues, and code conventions to `.runway/project-knowledge.md`. Only append entries that are new. Do **not** auto-edit the project root `CLAUDE.md`. （格式和命令详见 `references/retrospective-detail.md`）
 
 ### Step 8c — Ask user for additional notes
 
@@ -616,3 +422,10 @@ If the user wants to modify the requirements spec or tech spec after a Hard Gate
 
 - **`references/stage-handoff.md`** — Exact inputs/outputs for each stage transition
 - **`references/troubleshooting.md`** — Common errors and fixes per stage
+- **`references/state-management.md`** — checkpoint-write 参数、pipeline state、knowledge-append 命令
+- **`references/branch-creation.md`** — ones bg/ba/space-apps 完整流程
+- **`references/project-setup.md`** — project-memory-init、.gitignore、knowledge.json 加载
+- **`references/pipeline-activation.md`** — pipeline.local.md 创建与 Stop hook 续命
+- **`references/context-injection.md`** — PROJECT_NOTES 加载与注入
+- **`references/cleanup.md`** — 完成后清理命令序列
+- **`references/retrospective-detail.md`** — Stage 8 知识库提取与 project-knowledge.md 追加

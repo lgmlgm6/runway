@@ -470,7 +470,7 @@ Output format:
 **Level 1:**
 - Planner → Architect.
 - If Architect has no blocking `[MUST]` items, proceed to Step 5 self-review.
-- If Architect returns blocking `[MUST]` items, run one targeted Planner revision addressing all `[MUST]` items, then run Architect once more and stop there regardless of remaining `[MUST]` items. After the second Architect pass, do not run another revision cycle; instead include any unresolved `[MUST]` items in the Step 6 Hard Gate presentation for the user to decide.
+- If Architect returns blocking `[MUST]` items, run one targeted Planner revision addressing all `[MUST]` items, then run Architect once more and stop there regardless of remaining `[MUST]` items. After the second Architect pass, do not run another revision cycle. If the second Architect pass still has unresolved `[MUST]` items, do not loop again — list them in the Step 6 Hard Gate presentation with the label "⚠️ Architect 仍有未解决 [MUST] 项，请 review 后决定是否继续", then let the user decide before proceeding.
 
 **Level 2:**
 - Planner → Architect → Critic.

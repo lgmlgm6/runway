@@ -208,7 +208,7 @@ Returns issues tagged `Critical` / `Important` / `Minor`.
 
 | Severity | Definition | Action |
 |----------|-----------|--------|
-| **Critical** | Breaks correctness, security, or data integrity | Must fix before task is marked done — send back to implementer. **Max 2 fix rounds per Phase 2.** If unfixed after round 2, escalate per Step 4 rules. |
+| **Critical** | Breaks correctness, security, or data integrity | Must fix before task is marked done — send back to implementer. **Max 2 fix rounds per Phase 2.** If unfixed after round 2: mark task `DONE_WITH_CONCERNS`, record `Critical issue {key}: 2-round fix failed, reason: {summary}` in execution report, do NOT pause Stage 5, continue other tasks. Stage 6 (runway-code-review-fix) owns final resolution. |
 | **Important** | Degrades maintainability or performance noticeably | Log to execution report for runway-code-review-fix (Stage 6). Do not block task completion. |
 | **Minor** | Style, naming, or micro-optimisation | Log to execution report. Optional fix. |
 

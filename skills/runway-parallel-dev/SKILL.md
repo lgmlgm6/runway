@@ -171,35 +171,56 @@ node "$RUNWAY_TOOLS" knowledge-append \
 
 ## Step 3: Two-Phase Review (per task)
 
+A task is **done** only after BOTH phases complete without remaining Critical issues. The wave sync point is: every task in the wave has reached `✅ done` or `⏸️ BLOCKED` status — only then does the wave gate run.
+
 ### Phase 1 — Spec Compliance
 
-Use prompt template from `references/spec-reviewer-prompt.md`. Fill in:
-- `{FULL TEXT of task requirements}` — from the plan
-- `{implementer's report}` — status, files changed, commit SHA, TDD evidence
-- `{task-start-sha}` — commit before this task began
+Dispatch a spec-reviewer subagent. Provide:
+- Full text of the task requirements (copy from plan)
+- Implementer's report: status, changed files, commit SHA, TDD evidence (failing output + passing output)
+- `task-start-sha` — commit before this task began (`git rev-parse HEAD` before dispatch)
 
-Returns: `✅ COMPLIANT` or `❌ NON_COMPLIANT: {items with file:line}`.
+**What to check:**
+- Every step in the task checklist has a corresponding commit change
+- Failing test was written and shown to fail before implementation
+- Passing test evidence matches the task's expected output
+- No task step was silently skipped or substituted
 
-On NON_COMPLIANT: send specific items back to implementer subagent to fix, then re-dispatch spec reviewer. Max 2 rounds. Treat this as an internal repair loop — do not pause for user confirmation unless a Step 4 allowed pause condition is reached.
+Returns: `✅ COMPLIANT` or `❌ NON_COMPLIANT: {item} at {file:line}`.
+
+On NON_COMPLIANT: send the specific non-compliant items back to the implementer subagent to fix, then re-dispatch the spec reviewer. **Max 2 repair rounds per Phase 1.** If still non-compliant after round 2, mark task `DONE_WITH_CONCERNS` and log to execution report. Treat repair loops as internal work — do not pause for user confirmation.
 
 ### Phase 2 — Code Quality
 
-Use prompt template from `references/code-quality-reviewer-prompt.md`. Fill in:
-- `{BASE_SHA}` — commit before this task
-- `{HEAD_SHA}` — current HEAD after implementer's commit
-- `{implementer's report}` — what was built and concerns raised
+Dispatch a code-quality-reviewer subagent **only after Phase 1 returns COMPLIANT**. Provide:
+- `BASE_SHA` — commit before this task began
+- `HEAD_SHA` — `git rev-parse HEAD` after implementer's final commit
+- Implementer's report including any concerns raised
+
+**What to check:**
+- No obvious N+1 queries or unnecessary loops introduced
+- Error handling follows existing project patterns (no silent swallowing)
+- Naming is consistent with surrounding code
+- No dead code, commented-out blocks, or debug prints left in
+- No duplication of logic already present elsewhere in the diff
 
 Returns issues tagged `Critical` / `Important` / `Minor`.
 
-- **Critical:** must fix before task is marked done — send back to implementer
-- **Important:** log to execution report for runway-code-review-fix stage
-- **Minor:** log to execution report, optional
+| Severity | Definition | Action |
+|----------|-----------|--------|
+| **Critical** | Breaks correctness, security, or data integrity | Must fix before task is marked done — send back to implementer. **Max 2 fix rounds per Phase 2.** If unfixed after round 2, escalate per Step 4 rules. |
+| **Important** | Degrades maintainability or performance noticeably | Log to execution report for runway-code-review-fix (Stage 6). Do not block task completion. |
+| **Minor** | Style, naming, or micro-optimisation | Log to execution report. Optional fix. |
 
-Critical-fix loops are internal execution work, not user review gates. Keep the task moving until it is fixed or until the Step 4 escalation limit is reached.
+Critical-fix loops are internal execution work, not user review gates. Phase 2 max-2-round cap is independent of Phase 1's cap — each phase counts its own rounds separately.
 
 ## Step 4: Wave Completion Gate
 
-A wave is complete when all tasks are either ✅ reviewed-and-done or ⏸️ BLOCKED.
+**Wave sync point:** A wave is complete when every task has reached one of these terminal states:
+- `✅ done` — Phase 1 COMPLIANT + Phase 2 no remaining Critical
+- `⏸️ BLOCKED` — task could not proceed and is recorded in execution report
+
+Do not start the next wave until all tasks in the current wave have exited the two-phase review loop (either done or blocked). Tasks that are still in Phase 1 repair rounds or Phase 2 fix rounds are **not yet at a terminal state** — wait for them.
 
 Before starting the next wave:
 - run the wave's integration verification step;

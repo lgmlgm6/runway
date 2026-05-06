@@ -10,7 +10,7 @@
     {
       "name": "runway",
       "description": "Full development pipeline from PRD to QA — 7 stages with hard gates, TDD enforcement, and evidence-based completion",
-      "version": "0.1.2",
+      "version": "0.1.3",
       "author": {
         "name": "Meituan AI Platform"
       },

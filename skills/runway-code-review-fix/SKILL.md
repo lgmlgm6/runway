@@ -94,20 +94,49 @@ If the repository default branch is unclear, ask the user or inspect the repo co
 
 ## Step 2: Dispatch Review Subagents (parallel)
 
-Dispatch all three simultaneously. Each receives `git diff $BASE_SHA..$HEAD_SHA` plus focused context.
+Dispatch all three simultaneously using the full prompt templates from `references/reviewer-prompts.md`.
 
-Use the prompt templates from `references/reviewer-prompts.md`. Fill in `{BASE_SHA}`, `{HEAD_SHA}`, `{feature name}`, `{requirements spec summary}`, and `{base branch}` before dispatching.
+**Before dispatching, collect these inputs:**
+- `{BASE_SHA}` / `{HEAD_SHA}` — from Step 1
+- `{feature name}` — from branch name or checkpoint
+- `{base branch}` — resolved in Step 1
+- `{requirements spec summary}` — from `.runway/docs/{ones_id}/` or the xuecheng spec link
+- `{AC table}` — from requirements spec (AC编号 | Given | When | Then | 优先级)
+- `{TC list}` — from `.runway/tmp/tc-list.md` if it exists
+- `{接口协议变更}` — paste Section 三 from the tech spec
+- `{验证策略}` — paste Section 五 from the tech spec
 
-**Reviewer 1 — Functional & Logic**
-Focus: requirements coverage, logic correctness, edge cases, test adequacy.
+**Reviewer 1 — Functional & Logic** (use template in `references/reviewer-prompts.md`)
 
-**Reviewer 2 — Security**
-Focus: OWASP Top 10, sensitive data handling, auth/permission gaps, dependency vulnerabilities.
+Key focus areas:
+- AC coverage: for each P0 AC, is there a test method whose name contains the TC编号?
+- Does each test's assertion actually verify the AC's Then condition (not just "no exception")?
+- Logic correctness: branches, state transitions, boundary conditions, concurrency safety
+- Edge cases: null/empty input, max values, partial failure, repeated submission
 
-**Reviewer 3 — Code Quality**
-Focus: naming, single responsibility, DRY, error handling consistency, performance (N+1, unnecessary loops).
+Critical triggers: any P0 AC with zero test coverage; wrong output for valid input.
 
-Each reviewer returns findings tagged `Critical` / `Important` / `Minor`. See `references/severity-guide.md`.
+**Reviewer 2 — Security** (use template in `references/reviewer-prompts.md`)
+
+Key focus areas:
+- Injection: SQL, command, path traversal, XSS — are external inputs validated at system boundaries?
+- Auth/authz: are protected flows gated correctly? can a user reach another user's data?
+- Sensitive data: passwords/tokens/PII in logs, errors, or storage?
+- Misconfiguration: unsafe defaults, missing permission checks, weak dependency pinning
+
+Critical triggers: exploitable injection; missing auth gate on protected resource.
+
+**Reviewer 3 — Code Quality** (use template in `references/reviewer-prompts.md`)
+
+Key focus areas:
+- Single responsibility, DRY without over-abstraction, error handling consistent with codebase
+- YAGNI: did this add functionality with no current callers? → flag for rejection
+- Scope expansion check: did the fix touch a shared interface, public API, or common type?
+- Performance: N+1 queries, avoidable repeated work, blocking calls in hot paths
+
+Critical triggers: N+1 in hot path; introduced shared-interface change without updating callers.
+
+Each reviewer tags every finding with an **Issue Key** (`LOGIC-001`, `SEC-001`, `QUAL-001`) and severity `Critical` / `Important` / `Minor`. The Issue Key is used for deduplication and repeat-round tracking. See `references/severity-guide.md` for classification examples.
 
 ## Step 3: Aggregate Findings
 
@@ -145,20 +174,27 @@ git commit -m "fix: {description} (cr-round-{N})"
 
 ## Step 5: Loop Control
 
-After fixing Critical and Important issues, re-review the changed files first:
+After fixing Critical and Important issues in this round, re-review using the **same reviewer(s) whose findings were fixed**:
+
 ```bash
-git diff {prev-HEAD}..HEAD
+git diff {prev-round-HEAD}..HEAD   # diff of this round's fixes only
 ```
 
-Then expand review scope if the fix changed:
-- a shared interface or type;
-- a public API contract;
-- auth / permission behavior;
-- a module with multiple callers or downstream consumers.
+- If only Reviewer 1 (functional) findings were fixed → re-dispatch Reviewer 1 only on changed files
+- If only Reviewer 2 (security) findings were fixed → re-dispatch Reviewer 2 only on changed files
+- If multiple reviewer dimensions were fixed → re-dispatch all affected reviewers in parallel
+
+Expand scope beyond the changed files if the fix touched:
+- a shared interface or type → re-review all known callers
+- a public API contract → re-review all consumers visible in the diff
+- auth / permission behavior → re-review the full auth path
+- a module with multiple downstream consumers → re-review impacted modules
+
+**Repeat-round tracking:** Track each open Issue Key across rounds. An Issue Key is "repeating" if it appears in the re-review output with the same finding for the 3rd consecutive round (same file:line region and same root cause — not just same label).
 
 **Exit conditions:**
-- No Critical, no Important → exit loop ✅
-- Same issue cluster appears 3 rounds in a row → stop, escalate to user
+- No Critical, no Important across all reviewers → exit loop ✅
+- Any Issue Key appears unresolved for 3 consecutive rounds → stop, escalate that cluster to user
 - Round 5 reached with remaining issues → stop, produce failure report
 
 ## Step 6: Review Report

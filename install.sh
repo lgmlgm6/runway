@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+  #!/usr/bin/env bash
 # Runway skill suite installer
 # Usage: bash install.sh [--uninstall]
 #

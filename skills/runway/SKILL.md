@@ -91,8 +91,16 @@ If one or more checkpoint files exist, display them to the user:
 
 If user says yes:
 1. Read the checkpoint file and inspect the latest canonical stage/artifact state
-2. Print a compact restored status summary for the user
-3. Resume from `current_stage` (skip all earlier stages)
+2. **Validate checkpoint integrity**: verify that `current_stage` is a number between 1–7 and that all fields required by that stage are present (e.g., Stage 3+ requires `prd_content_id` and `requirements_spec_content_id`; Stage 5+ also requires `branch_name` and `base_sha`). If the file cannot be parsed (malformed JSON) or any required field is missing/null, print:
+   ```
+   ⚠️ Checkpoint 文件损坏或字段缺失，无法自动恢复。
+   - 问题：{描述缺失字段或解析错误}
+   - 建议：从 Stage 1 重新开始，或手动修复 .runway/checkpoint-{ones_work_item_id}.json 后重试。
+   是否从 Stage 1 重新开始？(y/n)
+   ```
+   If the user confirms, proceed with a fresh workflow from Stage 1.
+3. Print a compact restored status summary for the user
+4. Resume from `current_stage` (skip all earlier stages)
 
 If user says no: proceed with a fresh workflow starting from Stage 1.
 
@@ -104,7 +112,13 @@ User provides:
 3. **MIS** — skip if loaded from project memory
 4. **xuecheng parent document ID** (optional) — the parent document under which requirements spec and tech spec will be uploaded. If not provided, ask once: "请提供学城父文档ID（或父文档链接），用于上传需求规格和技术方案文档。"
 
-Extract contentId from PRD URL directly. Extract parentId from parent document URL if provided (`km.sankuai.com/collabpage/{parentId}`). Do not ask for confirmation on items already provided or loaded from project memory.
+Extract contentId from PRD URL directly using these rules:
+- `/collabpage/2748397739` → contentId = `2748397739`
+- `/collabpage/2748397739?xxx=yyy` → contentId = `2748397739` (strip query string)
+- `/page/2748397739` → contentId = `2748397739` (same numeric segment after `/page/`)
+- If the URL contains no recognisable numeric segment, ask the user: "无法从链接中解析 contentId，请直接提供学城文档 ID（纯数字）。"
+
+Extract parentId from parent document URL if provided (`km.sankuai.com/collabpage/{parentId}`). Do not ask for confirmation on items already provided or loaded from project memory.
 
 ## Auto-Advance Rule
 

@@ -236,6 +236,16 @@ Print a compact banner and move on:
 ✅ Wave {N} complete ({M} tasks). Starting Wave {N+1}...
 ```
 
+### BLOCKED Task Decision Table
+
+When a task reaches `⏸️ BLOCKED` state, use this table to decide the immediate action — no judgment call needed:
+
+| BLOCKED 情况 | 动作 |
+|---|---|
+| BLOCKED 任务不是下一 Wave 的依赖 | 继续其他任务和后续 Wave，将 BLOCKED 记录到 Execution Report |
+| BLOCKED 任务是下一 Wave 的直接依赖 | 当前 Wave 所有任务完成后暂停 Stage 5，向用户说明 blocker 并询问如何解决 |
+| 当前 Wave 所有任务均 BLOCKED | 立即暂停 Stage 5，生成 Failure Report，等待用户指示 |
+
 **Only pause** (wait for user input) when:
 1. A BLOCKED task is a declared dependency of the next wave — explain the blocker and ask how to resolve
 2. Integration verification FAILS — show the failure and ask how to proceed

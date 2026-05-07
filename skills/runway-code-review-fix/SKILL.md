@@ -43,41 +43,17 @@ Produce review report → return control to orchestrator
 
 ## Step 1: Get Branch Info
 
-**Before resolving branch info, check if a pipeline state already exists (set by the main runway orchestrator). Only create one if running standalone:**
+**Before resolving branch info, ensure the pipeline loop state is active (standalone path creates it; orchestrated path reuses the existing one):**
 
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-if [[ ! -f .claude/runway-state/pipeline.local.md ]] || \
-   ! grep -q "^active: true" .claude/runway-state/pipeline.local.md 2>/dev/null; then
-  mkdir -p .runway/tmp
-  cat > .runway/tmp/pipeline-stage6-prompt.md << 'EOF'
-你是 runway-code-review-fix 的编排器，代码 Review 流水线正在运行中。立即从当前位置继续：
-
-- 如果分支信息尚未获取 → 获取 BASE_SHA / HEAD_SHA
-- 如果 3 个 reviewer 尚未派发 → 并发派发
-- 如果 findings 尚未聚合 → 聚合并去重
-- 如果仍有 Critical/Important 问题且未达 5 轮 → 继续修复循环
-- 如果无 Critical/Important 或已达 5 轮 → 生成 Review Report，输出 <promise>CODE REVIEW COMPLETE</promise>
-
-**暂停规则：**
-- 同一 issue cluster 出现 3 轮 → 停用 state，上报用户
-- 用户明确说 stop / cancel
-
-停用命令：`node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false`
-
-不要等待用户输入。直接推进到下一个待执行步骤。
-EOF
-  node "$RUNWAY_TOOLS" state-init \
-    --root "$PWD" \
-    --name pipeline.local.md \
-    --mode pipeline \
-    --max-iterations 30 \
-    --completion-promise "CODE REVIEW COMPLETE" \
-    --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
-    --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --prompt-file .runway/tmp/pipeline-stage6-prompt.md
-fi
+node "$RUNWAY_TOOLS" loop-init \
+  --root "$PWD" \
+  --stage 6 \
+  --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
+  --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --prompt-text "你是 runway-code-review-fix 的编排器，代码 Review 流水线正在运行中。立即从当前位置继续：分支信息未获取 → 获取 BASE_SHA/HEAD_SHA；3 个 reviewer 未派发 → 并发派发；findings 未聚合 → 聚合去重；有 Critical/Important 且未达 5 轮 → 继续修复；无 Critical/Important 或达 5 轮 → 生成 Review Report，输出 <promise>CODE REVIEW COMPLETE</promise>。同一 issue cluster 出现 3 轮或用户 stop/cancel 时先停用 state 再暂停。不要等待用户输入，直接推进。"
 ```
 
 Resolve the base branch first. Do not hard-code `main`.
@@ -196,6 +172,11 @@ Expand scope beyond the changed files if the fix touched:
 - No Critical, no Important across all reviewers → exit loop ✅
 - Any Issue Key appears unresolved for 3 consecutive rounds → stop, escalate that cluster to user
 - Round 5 reached with remaining issues → stop, produce failure report
+
+Before escalating to the user, deactivate the pipeline state so the Stop hook does not re-inject a continuation prompt:
+```bash
+node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false
+```
 
 ## Step 6: Review Report
 

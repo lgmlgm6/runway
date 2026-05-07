@@ -128,22 +128,11 @@ Extract contentId from PRD URL directly using these rules:
 
 Extract parentId from parent document URL if provided (`km.sankuai.com/collabpage/{parentId}`). Do not ask for confirmation on items already provided or loaded from project memory.
 
-## Auto-Advance Rule
-
-After each stage completes, **automatically invoke the next stage WITHOUT waiting for user input**, UNLESS:
-1. A `<HARD-GATE>` is explicitly reached — requires user confirmation before proceeding
-2. A `BLOCKED` status is reported with no path forward — pause and explain clearly
-3. An unrecoverable error requires human decision
-
-**Do NOT** pause between stages to summarize or ask "shall I continue?", "ready to proceed?", or similar. Just proceed immediately. The user can interrupt at any time by sending a message.
-
-Stages 1 and 2 are explicit Hard Gates. Stage 3 → 4 → 5 → 6 → 7 auto-advance unless blocked.
-
 ## State Tracking
 
 Use the canonical checkpoint `.runway/checkpoint-{ones_work_item_id}.json` as the cross-stage source of truth. Use `.claude/runway-state/*.md` only for active loop ownership and resume mechanics.
 
-When you need a workflow snapshot, prefer the shared status surface instead of maintaining a hand-written state template:
+Query workflow snapshot:
 
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
@@ -151,9 +140,11 @@ RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 node "$RUNWAY_TOOLS" status --root "$PWD" --ones-id "{ones_work_item_id}"
 ```
 
+Stages 1 and 2 are explicit Hard Gates. Stage 3 → 4 → 5 → 6 → 7 auto-advance unless blocked.
+
 At each stage boundary, keep the checkpoint current with `checkpoint-write` and print only the compact status fields the user needs to see next: current stage, artifact IDs/paths, branch/SHA, and whether the workflow is waiting, blocked, or auto-advancing.
 
-If an upstream artifact changes after a hard gate, invalidate downstream outputs using the canonical handoff rules, tell the user which downstream stages must rerun, and resume from the earliest invalidated stage rather than Stage 1. See `references/stage-handoff.md` for the exact propagation map.
+If an upstream artifact changes after a hard gate, run `artifacts-invalidate` to find the earliest invalidated stage, tell the user which downstream stages must rerun, and resume from there. See `references/stage-handoff.md` for the exact propagation map.
 
 ## Review-Only Guardrail
 
@@ -188,7 +179,7 @@ Invoke the **runway-tech-design** skill with:
 - requirements spec contentId from Stage 1
 - MIS
 
-The skill handles: reading spec → deep code exploration → admission-based review path (Level 0 Planner only, Level 1 Planner → Architect, Level 2 Planner → Architect → Critic) → deliberate mode if needed → self-review → present full tech spec → upload to xuecheng after approval.
+The skill handles: reading spec → admission scan → admission-based review path (Level 0 Planner only, Level 1 Planner → Architect, Level 2 Planner → Architect → Critic) → deliberate mode if needed → self-review → present full tech spec → upload to xuecheng after approval.
 
 **Hard Gate:** runway-tech-design will present the complete tech spec and ask the user to review and approve. After approval, it uploads the tech spec to xuecheng and returns the contentId. Wait for explicit approval before continuing.
 
@@ -254,7 +245,18 @@ Update checkpoint with branch and sha using `checkpoint-write --current-stage 5`
 
 ### 激活流水线续命循环
 
-在进入 Stage 5 之前，运行 `state-init` 创建 `pipeline.local.md` 让 Stop hook 接管 Stage 5-7 续命。（完整模板详见 `references/pipeline-activation.md`）
+在进入 Stage 5 之前，激活 Stage 5-7 pipeline 续命循环：
+
+```bash
+RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
+RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+node "$RUNWAY_TOOLS" loop-init \
+  --root "$PWD" \
+  --stage 5 \
+  --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
+  --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --prompt-text "你是 Runway 编排器，Stage 5-7 流水线正在运行中。检查当前状态并继续：Stage 5 未完成 → 调用 runway-parallel-dev；Stage 6 未完成 → 调用 runway-code-review-fix；Stage 7 未完成 → 调用 runway-qa-verify；全部通过 → 执行 Stage 8 Retrospective → 打印 Development Complete → 更新 ONES → 输出 <promise>RUNWAY STAGES 5-7 COMPLETE</promise>"
+```
 
 Then **immediately proceed to Stage 5 without waiting for user input**.
 
@@ -270,7 +272,7 @@ Invoke the **runway-parallel-dev** skill with:
 
 The skill handles: wave-based parallel execution → TDD enforcement → two-phase review per task → execution report.
 
-No Hard Gate here — runs to completion automatically. BLOCKED tasks are surfaced to the user but do not stop the pipeline for other tasks unless they block later waves.
+BLOCKED tasks are surfaced to the user but do not stop the pipeline for other tasks unless they block later waves.
 Do not stop after Stage 5 skill startup, plan load, tracker creation, wave banners, or execution-report packaging. Those are internal progress events, not user approval points.
 After Stage 5 returns a completed execution report, continue directly into Stage 6 in the same turn unless Stage 5 explicitly paused under its allowed blocker conditions.
 
@@ -293,9 +295,7 @@ Invoke the **runway-code-review-fix** skill with:
 - BASE_SHA from Stage 4
 - HEAD_SHA from Stage 5
 
-The skill handles: parallel multi-dimension review → finding dedupe → fix by severity → convergence loop.
-
-No Hard Gate — runs to completion automatically. Escalates to user only if a Critical issue cannot be resolved after 3 attempts.
+The skill handles: parallel multi-dimension review → finding dedupe → fix by severity → convergence loop. Escalates to user only if a Critical issue cannot be resolved after 3 attempts.
 
 After completion, print:
 ```
@@ -312,9 +312,7 @@ Update `HEAD_SHA` = `git rev-parse HEAD`.
 Invoke the **runway-qa-verify** skill with:
 - target: `--all`
 
-The skill handles: build/lint/test/typecheck loop → architect diagnosis → executor fix → evidence summary.
-
-No Hard Gate — runs to completion automatically. Escalates to user only if same failure repeats 3 times or 5 rounds are exhausted.
+The skill handles: build/lint/test/typecheck loop → architect diagnosis → executor fix → evidence summary. Escalates to user only if same failure repeats 3 times or 5 rounds are exhausted.
 
 ## Completion
 
@@ -420,12 +418,11 @@ If the user wants to modify the requirements spec or tech spec after a Hard Gate
 
 ## Additional Resources
 
-- **`references/stage-handoff.md`** — Exact inputs/outputs for each stage transition
+- **`references/stage-handoff.md`** — Workflow state anchor and resume rules
 - **`references/troubleshooting.md`** — Common errors and fixes per stage
 - **`references/state-management.md`** — checkpoint-write 参数、pipeline state、knowledge-append 命令
 - **`references/branch-creation.md`** — ones bg/ba/space-apps 完整流程
 - **`references/project-setup.md`** — project-memory-init、.gitignore、knowledge.json 加载
-- **`references/pipeline-activation.md`** — pipeline.local.md 创建与 Stop hook 续命
 - **`references/context-injection.md`** — PROJECT_NOTES 加载与注入
 - **`references/cleanup.md`** — 完成后清理命令序列
 - **`references/retrospective-detail.md`** — Stage 8 知识库提取与 project-knowledge.md 追加

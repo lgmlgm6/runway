@@ -1,22 +1,8 @@
-const ARTIFACT_TO_STAGE = {
-  requirements_spec: 1,
-  tech_spec: 2,
-  task_plan: 3,
-  branch_execution: 4,
-  execution_report: 5,
-  cr_report: 6,
-  qa_report: 7,
-};
+const { WORKFLOW_MANIFEST } = require('./workflow-manifest.cjs');
 
-const INVALIDATION_MAP = {
-  requirements_spec: ['tech_spec', 'task_plan', 'branch_execution', 'execution_report', 'cr_report', 'qa_report'],
-  tech_spec: ['task_plan', 'branch_execution', 'execution_report', 'cr_report', 'qa_report'],
-  task_plan: ['branch_execution', 'execution_report', 'cr_report', 'qa_report'],
-  branch_execution: ['execution_report', 'cr_report', 'qa_report'],
-  execution_report: ['cr_report', 'qa_report'],
-  cr_report: ['qa_report'],
-  qa_report: [],
-};
+// Derived from the single manifest source of truth.
+const ARTIFACT_TO_STAGE = WORKFLOW_MANIFEST.artifactToStage;
+const INVALIDATION_MAP  = WORKFLOW_MANIFEST.invalidation;
 
 function computeInvalidatedArtifacts(changedArtifact) {
   return [...(INVALIDATION_MAP[changedArtifact] || [])];
@@ -35,9 +21,10 @@ function getEarliestInvalidatedStage(artifacts) {
 }
 
 function sortArtifacts(artifacts) {
-  return [...artifacts].sort((left, right) => {
-    return (ARTIFACT_TO_STAGE[left] || Number.MAX_SAFE_INTEGER) - (ARTIFACT_TO_STAGE[right] || Number.MAX_SAFE_INTEGER);
-  });
+  return [...artifacts].sort((left, right) =>
+    (ARTIFACT_TO_STAGE[left] || Number.MAX_SAFE_INTEGER) -
+    (ARTIFACT_TO_STAGE[right] || Number.MAX_SAFE_INTEGER),
+  );
 }
 
 function markArtifactsInvalid(checkpoint, changedArtifact) {

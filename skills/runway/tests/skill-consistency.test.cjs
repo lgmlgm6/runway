@@ -413,6 +413,33 @@ test('Skill contracts avoid migration-residue wording', () => {
   }
 });
 
+test('Stage 5/6 loop init uses loop-init command instead of inline state-init shell block', () => {
+  const parallelDev = read('runway-parallel-dev/SKILL.md');
+  const codeReview = read('runway-code-review-fix/SKILL.md');
+
+  // Must use the manifest-driven loop-init command with correct stage
+  // (args may be on separate lines, so match each key token independently)
+  assert.match(parallelDev, /loop-init/);
+  assert.match(parallelDev, /--stage 5/);
+  assert.match(codeReview, /loop-init/);
+  assert.match(codeReview, /--stage 6/);
+
+  // Must NOT contain the old inline cat > ... state-init pattern
+  assert.doesNotMatch(parallelDev, /cat > \.runway\/tmp\/pipeline-stage5-prompt\.md/);
+  assert.doesNotMatch(codeReview, /cat > \.runway\/tmp\/pipeline-stage6-prompt\.md/);
+});
+
+test('Stage 2 loop init uses loop-init command instead of inline state-init shell block', () => {
+  const techDesign = read('runway-tech-design/SKILL.md');
+
+  // Must use the manifest-driven loop-init command with correct stage
+  assert.match(techDesign, /loop-init/);
+  assert.match(techDesign, /--stage 2/);
+
+  // Must NOT contain the old inline cat > ... state-init pattern for triangle loop
+  assert.doesNotMatch(techDesign, /cat > \.runway\/tmp\/triangle-loop-prompt\.md/);
+});
+
 
 
 

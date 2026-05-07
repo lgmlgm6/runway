@@ -17,6 +17,7 @@ const {
   resolveActiveState,
 } = require('../lib/state.cjs');
 const { resolveStatus } = require('../lib/status.cjs');
+const { WORKFLOW_MANIFEST } = require('../lib/workflow-manifest.cjs');
 
 function parseArgs(argv) {
   const result = { _: [] };
@@ -305,6 +306,55 @@ function handleKnowledgeRead(args) {
   process.stdout.write(prompt ? `${prompt}\n` : '');
 }
 
+// loop-init: check if a pipeline/triangle loop state already exists (orchestrated path).
+// If not active (standalone path), create one from manifest parameters for the given stage.
+function handleLoopInit(args) {
+  const rootDir = requireArg(args, 'root');
+  const stage = Number(requireArg(args, 'stage'));
+  const sessionId = args.session_id ?? null;
+  const startedAt = args.started_at ?? new Date().toISOString();
+
+  const stageManifest = WORKFLOW_MANIFEST.stages[stage];
+  if (!stageManifest) {
+    throw new Error(`Unknown stage: ${stage}`);
+  }
+
+  const { loopName, maxIterations, completionPromise } = stageManifest;
+  if (!loopName) {
+    printJson({ created: false, reason: `stage ${stage} has no loop` });
+    return;
+  }
+
+  const statePath = path.join(rootDir, '.claude', 'runway-state', loopName);
+
+  // If an active state already exists, the orchestrator owns it — do not create a competing loop.
+  if (fs.existsSync(statePath)) {
+    const content = fs.readFileSync(statePath, 'utf8');
+    if (/^active: true$/m.test(content)) {
+      printJson({ created: false, reason: 'orchestrator-owned loop already active', path: relativeToRoot(rootDir, statePath) });
+      return;
+    }
+  }
+
+  // Standalone path: build the resume prompt from manifest metadata.
+  const mode = loopName.includes('triangle') ? 'triangle' : 'pipeline';
+  const promptText = args.prompt_text
+    || `Runway [stage ${stage}] loop is running. Resume from where you left off. Output <promise>${completionPromise}</promise> only when genuinely complete.`;
+
+  const filePath = initStateFile({
+    rootDir,
+    name: loopName,
+    mode,
+    maxIterations: maxIterations ?? 50,
+    completionPromise: completionPromise ?? null,
+    sessionId,
+    startedAt,
+    prompt: promptText,
+  });
+
+  printJson({ created: true, path: relativeToRoot(rootDir, filePath), stage, loopName });
+}
+
 function handleProjectMemoryInit(args) {
   const rootDir = requireArg(args, 'root');
   const runwayDir = path.join(rootDir, '.runway');
@@ -398,6 +448,11 @@ function main() {
 
     if (command === 'status') {
       handleStatus(args);
+      return;
+    }
+
+    if (command === 'loop-init') {
+      handleLoopInit(args);
       return;
     }
 

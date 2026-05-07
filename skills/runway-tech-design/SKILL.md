@@ -186,29 +186,12 @@ Place rollout or risk notes inside the most relevant required section.
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-mkdir -p .runway/tmp
-cat > .runway/tmp/triangle-loop-prompt.md << 'EOF'
-你是 runway-tech-design 的主编排器，Stage 2 方案评审正在进行中。立即从当前位置继续：
-
-- 如果尚未完成准入判断 → 完成 L0 / L1 / L2 与 deliberate mode 判定
-- 如果 Planner 尚未完成 → 继续运行 Planner
-- 如果当前为 Level 1 或 Level 2，且 Architect 尚未运行 → 运行 Architect，展示完整审查结果
-- 如果当前为 Level 2，且 Critic 尚未运行 → 运行 Critic，展示完整审查结果
-- 如果当前为 Level 1，且存在阻断性的 [MUST] 项且尚未完成一次定向修订 → 带上修订清单重新运行 Planner，然后再次运行 Architect
-- 如果当前为 Level 2，且 Critic 返回 ITERATE/REJECT 且尚未完成一次定向修订 → 带上修订清单重新运行 Planner，然后再次运行 Architect → Critic
-- 如果达到当前级别的结束条件 → 继续 Step 4（deliberate mode）→ Step 5（自检）→ Step 6（展示方案 + Hard Gate）→ Step 7（用户确认后上传学城）→ 停用 triangle state → 将控制权交还给主 orchestrator
-
-中途展示 Planner / Architect / Critic 结果后，必须在同一轮继续推进；不要把这些展示当成暂停点或确认点。
-不要等待用户确认。不要询问是否继续。直接推进到下一个待执行步骤。
-EOF
-node "$RUNWAY_TOOLS" state-init \
+node "$RUNWAY_TOOLS" loop-init \
   --root "$PWD" \
-  --name triangle-loop.local.md \
-  --mode triangle \
-  --max-iterations 20 \
+  --stage 2 \
   --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
   --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --prompt-file .runway/tmp/triangle-loop-prompt.md
+  --prompt-text "你是 runway-tech-design 的主编排器，Stage 2 方案评审正在进行中。立即从当前位置继续：如果尚未完成准入判断 → 完成 L0/L1/L2 与 deliberate mode 判定；如果 Planner 未完成 → 继续运行；Level 1/2 且 Architect 未运行 → 运行 Architect；Level 2 且 Critic 未运行 → 运行 Critic；达到结束条件 → Step 4 deliberate → Step 5 自检 → Step 6 Hard Gate → Step 7 上传学城 → 停用 triangle state → 返还控制权。不要等待用户确认，直接推进。"
 ```
 
 This state file is resume metadata for Stage 2 only. Unlike the Stage 4-7 pipeline loop, it should not block user exit.

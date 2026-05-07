@@ -37,42 +37,17 @@ All waves done → execution report produced → return control to orchestrator
 
 ## Step 1: Read Plan and Create Tracker
 
-**Before reading the plan, check if a pipeline state already exists (set by the main runway orchestrator). Only create one if running standalone (not invoked from runway):**
+**Before reading the plan, ensure the pipeline loop state is active (standalone path creates it; orchestrated path reuses the existing one):**
 
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-# Only create pipeline state if not already active (main orchestrator may have set it)
-if [[ ! -f .claude/runway-state/pipeline.local.md ]] || \
-   ! grep -q "^active: true" .claude/runway-state/pipeline.local.md 2>/dev/null; then
-  mkdir -p .runway/tmp
-  cat > .runway/tmp/pipeline-stage5-prompt.md << 'EOF'
-你是 runway-parallel-dev 的编排器，并行开发流水线正在运行中。立即从当前位置继续：
-
-- 如果计划尚未读取 → 读取计划，建立 tracker
-- 如果当前 Wave 有任务未派发 → 并发派发该 Wave 所有任务
-- 如果当前 Wave 有任务未完成 review → 继续 two-phase review
-- 如果当前 Wave 已完成 → 运行 wave integration verification，自动进入下一个 Wave
-- 如果所有 Wave 完成 → 生成 Execution Report，输出 <promise>PARALLEL DEV COMPLETE</promise>
-
-**暂停规则（遇到以下情况必须先停用 pipeline state 再暂停）：**
-- 出现真正 blocker（无法自动解决）且是下一 wave 的依赖
-- 用户明确说 stop / cancel
-
-停用命令：`node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false`
-
-不要等待用户输入。不要总结后询问"是否继续"。直接推进到下一个待执行步骤。
-EOF
-  node "$RUNWAY_TOOLS" state-init \
-    --root "$PWD" \
-    --name pipeline.local.md \
-    --mode pipeline \
-    --max-iterations 50 \
-    --completion-promise "PARALLEL DEV COMPLETE" \
-    --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
-    --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --prompt-file .runway/tmp/pipeline-stage5-prompt.md
-fi
+node "$RUNWAY_TOOLS" loop-init \
+  --root "$PWD" \
+  --stage 5 \
+  --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
+  --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --prompt-text "你是 runway-parallel-dev 的编排器，并行开发流水线正在运行中。立即从当前位置继续：计划未读 → 读取建立 tracker；Wave 有未派发任务 → 并发派发；Wave 有未完成 review → 继续；Wave 已完成 → 运行 integration verification 进入下一 Wave；所有 Wave 完成 → 生成 Execution Report，输出 <promise>PARALLEL DEV COMPLETE</promise>。遇到真正 blocker 或用户 stop/cancel 时先停用 state 再暂停。不要等待用户输入，直接推进。"
 ```
 
 Read the plan document. Create one tracker entry per task and record:
@@ -250,6 +225,11 @@ When a task reaches `⏸️ BLOCKED` state, use this table to decide the immedia
 1. A BLOCKED task is a declared dependency of the next wave — explain the blocker and ask how to resolve
 2. Integration verification FAILS — show the failure and ask how to proceed
 3. Round 5 of fix attempts reached for a Critical issue
+
+Before pausing, deactivate the pipeline state so the Stop hook does not re-inject a continuation prompt:
+```bash
+node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false
+```
 
 If a blocked task is an explicit dependency of the next wave, stop and ask the user how to resolve it.
 

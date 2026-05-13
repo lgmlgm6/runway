@@ -29,7 +29,7 @@
 
 | 文件 | 内容 | 写入时机 |
 |------|------|---------|
-| `project.json` | appkey / build_cmd / 测试数据链接 / pipeline_defaults 等 | Stage 4 首次写入，之后累积更新 |
+| `project.json` | appkey / build_cmd / ones_space_id / pipeline_defaults / 模块配置字段等 | Step 0a 首次收集时写入，Stage 4 补充 project-memory-init，之后累积更新 |
 | `knowledge.json` | 结构化踩坑记录（pitfall / pattern / constraint） | Stage 12 每次追加 |
 | `project-knowledge.md` | 人类可读版知识库 | Stage 12 每次追加 |
 

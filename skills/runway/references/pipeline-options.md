@@ -57,8 +57,11 @@ node "$RUNWAY_TOOLS" checkpoint-write \
 }
 ```
 
-Step 0d 展示配置界面时，从 `pipeline_defaults` 读取预填值；用户回车确认或修改后，将新选择写入 `pipeline_options`（checkpoint）并更新 `pipeline_defaults`（project.json）。
+Step 0d 执行时：
+- `pipeline_defaults` 已存在 → 打印当前各项值并附适用性提示（如某项跳过会影响当前 pipeline_mode 的关键路径），询问是否变更（y/n）。用户选 n 直接复用，选 y 展示表单重新配置。
+- `pipeline_defaults` 不存在 → 直接展示两问表单收集配置。
+- 配置确定后将新选择写入 `pipeline_options`（checkpoint）并更新 `pipeline_defaults`（project.json）。
 
 ## checkpoint 恢复时的处理
 
-从 checkpoint 恢复时，直接读取已保存的 `pipeline_options`，**不重新展示配置界面**，直接从 `current_stage` 继续。
+从 checkpoint 恢复时，读取已保存的 `pipeline_options`，展示当前值并询问是否变更（y/n）。用户选 n 直接复用，不重新展示表单；选 y 展示表单重新配置。恢复后直接从 `current_stage` 继续。

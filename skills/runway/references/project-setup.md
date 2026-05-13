@@ -1,24 +1,5 @@
 # Project Setup — project.json 加载、知识库、初始化
 
-## Step 0b：加载项目知识库
-
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-
-if [[ -f .runway/knowledge.json ]]; then
-  KNOWLEDGE_COUNT=$(jq 'length' .runway/knowledge.json 2>/dev/null || echo 0)
-  echo "📚 项目知识库：${KNOWLEDGE_COUNT} 条"
-  echo "   最近沉淀（pitfall / pattern）："
-  jq -r '.[] | select(.type == "pitfall" or .type == "pattern") | "  [\(.type)] \(.summary)"' \
-    .runway/knowledge.json 2>/dev/null | tail -5
-fi
-```
-
-`knowledge.json` 中的 `pitfall` 类条目会在各 Stage 自动注入，尤其关注对当前 feature 有影响的 `pitfall` 警告。
-
----
-
 ## Stage 4：project-memory-init（首次运行时）
 
 如果 `.runway/project.json` 不存在，在 Stage 4 末尾自动生成并提示用户确认写入：

@@ -22,7 +22,7 @@ Stage 2（runway-tech-design）新增以下传入参数，用于 Step 4.5 接口
 | 输入 | MIS | checkpoint / project memory |
 | 输入 | papi_token | project.json |
 | 输入 | papi_project_id | project.json |
-| 输入 | papi_base_url | project.json（可为空） |
+| 输入 | papi_base_url | project.json（skip_papi=false 时必填，Step 0a-post 已保证；skip_papi=true 时不需要） |
 | 输出 | papi_sync_status | checkpoint |
 | 输出 | papi_synced_apis | checkpoint |
 | 输出 | api-changelog entry | `.runway-team/api-changelog/{date}-{feature}.md` |

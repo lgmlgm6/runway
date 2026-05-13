@@ -31,59 +31,25 @@ End-to-end development pipeline. Takes a xuecheng PRD link and a ones work item 
 
 ### Step 0: Load Project Memory and Check Checkpoint
 
-Execute the full initialization sequence. See `references/stage-init.md` for complete rules on each sub-step.
+**⚠️ 强制要求：在执行任何 Step 0 子步骤之前，必须先完整读取 `references/stage-init.md` 全文。未读取该文件不得执行初始化流程。每个子步骤的完整规则、字段定义、跳过条件均在该文件中，SKILL.md 中的描述仅为摘要。**
 
-**Step 0-mode — 模式选择（仅当无任何模式 flag 时触发）：**
+**执行顺序：Step 0-pre → Step 0a（project级）→ Step 0c → Step 0a（feature级）→ Step 0-mode → Step 0d → Step 0a-post**
 
-If none of `--lite`, `--litefull`, `--fullstack`, `--frontend-mode`, `--requirements-spec-id`, `--tech-spec-id` are present, use **two sequential `AskUserQuestion` calls** to select the pipeline mode. **⚠️ 每次只调用一个 AskUserQuestion，等用户回答后再发起下一次，不得合并成一次调用。**
+完整规则见 `references/stage-init.md`，以下为摘要。
 
-**第一次 AskUserQuestion — 仓库范围：**
-```
-question: "请选择开发范围："
-header: "仓库范围"
-multiSelect: false
-options:
-  - label: "后端"
-    description: "单仓后端开发，含 PAPI 同步、Shepherd 配置、自动测试。"
-  - label: "前端"
-    description: "单仓前端开发，QA 阶段只做 build + lint 验证。"
-  - label: "全栈"
-    description: "自动派发 AgentTeam，前后端仓库并行开发，最终汇总结果。"
-```
+**Step 0-mode:** 无任何模式 flag 且未从 checkpoint restore 时，展示仓库范围（后端/前端/全栈）和质量档位（标准/轻量）两问，两次 AskUserQuestion 顺序独立调用，不得合并。选择后立即写入 checkpoint。完整 AskUserQuestion 配置和 pipeline_mode 映射见 `references/stage-init.md`。
 
-等用户回答后，再发起第二次 AskUserQuestion：
+**Step 0-pre:** 解析 CLI flags，确定 pipeline_mode 及跳过规则。**Flag 解析完成后立即扫描 checkpoint，若存在则检查 pipeline_mode 冲突，发现冲突立即提示用户。** 仅 `--frontend-mode` 跳过 Step 0d；`--lite`、`--litefull`、`--fullstack` 不跳过 Step 0d。
 
-**第二次 AskUserQuestion — 质量档位：**
-```
-question: "请选择质量档位："
-header: "质量档位"
-multiSelect: false
-options:
-  - label: "标准"
-    description: "质量优先。含 PRD Spec + Tech Spec 全套评审，有 2 个人工确认门。耗时较长。"
-  - label: "轻量"
-    description: "速度优先。跳过 PRD/Tech Spec，直接读 PRD 生成接口设计，零 Hard Gate。"
-```
+**Step 0a（project 级）:** 读取 `.runway/project.json`。已存在则打印当前值（mis、appkey、ones_space_id、build_cmd、test_cmd、lint_cmd），询问是否变更（y/n），用户选 n 直接复用。不存在则首次收集上述字段。Feature 级字段此步不收集。
 
-Map the two answers to internal flags (do not show this mapping to the user):
-- 后端 + 标准 → `pipeline_mode = "standard"`
-- 后端 + 轻量 → `pipeline_mode = "lite"`
-- 前端 + 标准 → `pipeline_mode = "standard"`, `role = "frontend"`, apply frontend-mode settings
-- 前端 + 轻量 → `pipeline_mode = "lite"`, `role = "frontend"`, apply frontend-mode settings
-- 全栈 + 标准 → `pipeline_mode = "fullstack"`, `fullstack_handoff_status = "pending"`
-- 全栈 + 轻量 → `pipeline_mode = "litefull"`, `fullstack_handoff_status = "pending"`
+**Step 0c:** 扫描 checkpoint 文件，询问是否恢复。restore 路径：验证阶段必要字段 → 执行 **0c-verify**（检查 project.json 中模块字段是否完整，缺失补收）→ 跳过 Step 0a-feature、Step 0-mode、Step 0d、Step 0a-post，直接 resume。
 
-**Step 0-pre:** Parse CLI flags (`--frontend-mode`, `--fullstack`, `--lite`, `--litefull`, `--skip-stages`, `--requirements-spec-id`, `--tech-spec-id`, `--tclist-content-id`) and set checkpoint fields accordingly. Mode-specific behavior is fully specified in `references/stage-init.md`.
+**Step 0a（feature 级）:** 仅新建流程执行。每次必收：ONES 工作项链接（提取 ones_work_item_id 写入 checkpoint，ones_space_id 写入 project.json）、citadel_parent_id、PRD 链接（提取 prd_content_id）。禁止调用任何外部工具，纯字符串解析。
 
-**Step 0a:** Load `.runway/project.json` base fields (mis, appkey, ones_space_id, build commands). If missing, collect base fields only. Always ask for `ones_work_item_id` and PRD contentId per feature.
+**Step 0d:** 跳过的唯一条件为 `--frontend-mode`。其他所有模式均需经过此步。pipeline_defaults 已存在时展示当前值 + 适用性提示，询问是否变更，用户选 n 直接复用。不存在时展示两问表单（两次独立 AskUserQuestion）。写入 checkpoint `pipeline_options` 和 project.json `pipeline_defaults`。
 
-**Step 0c:** Scan for checkpoint files. If found, offer restore — if restored, skip Step 0d AskUserQuestion form only; still run Step 0a-post to verify all module fields are present in project.json.
-
-**Step 0d:** Show pipeline options form (skip the AskUserQuestion form if `--frontend-mode`, `--lite`, `--litefull`, or checkpoint already has pipeline_options). Write choices to `pipeline_options`. See `references/pipeline-options.md`. **⚠️ Step 0a-post must always run after Step 0d regardless of whether the form was shown.**
-
-**Step 0a-post:** Collect module-specific fields based on pipeline_options (papi_token if PAPI selected, test_base_domain if autotest selected, shepherd_group_url if Shepherd selected). **必须执行，不可跳过。** Write to `project.json`.
-
-**Step 0b:** Load project knowledge from `.runway/knowledge.json` — print last 5 pitfall/pattern entries.
+**Step 0a-post:** 仅新建流程执行（restore 路径在 0c-verify 中已补收）。根据 pipeline_options 补收模块字段：skip_papi=false → papi_token、papi_project_id、papi_base_url（均必填）；skip_autotest=false → test_base_domain、test_data_km_url；skip_shepherd=false → shepherd_group_url。缺才问，已有值静默跳过。
 
 ## State Tracking
 

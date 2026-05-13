@@ -37,7 +37,7 @@ End-to-end development pipeline. Takes a xuecheng PRD link and a ones work item 
 
 完整规则见 `references/stage-init.md`，以下为摘要。
 
-**Step 0-mode:** 无任何模式 flag 且未从 checkpoint restore 时，展示仓库范围（后端/前端/全栈）和质量档位（标准/轻量）两问，两次 AskUserQuestion 顺序独立调用，不得合并。选择后立即写入 checkpoint。完整 AskUserQuestion 配置和 pipeline_mode 映射见 `references/stage-init.md`。
+**Step 0-mode:** 无任何模式 flag 且未从 checkpoint restore 时，单次 AskUserQuestion 调用，包含仓库范围（后端/前端/全栈）和质量档位（标准/轻量）两个 question，用户在同一表单里完成选择。选择后立即写入 checkpoint。完整配置和 pipeline_mode 映射见 `references/stage-init.md`。
 
 **Step 0-pre:** 解析 CLI flags，确定 pipeline_mode 及跳过规则。**Flag 解析完成后立即扫描 checkpoint，若存在则检查 pipeline_mode 冲突，发现冲突立即提示用户。** 仅 `--frontend-mode` 跳过 Step 0d；`--lite`、`--litefull`、`--fullstack` 不跳过 Step 0d。
 
@@ -47,7 +47,7 @@ End-to-end development pipeline. Takes a xuecheng PRD link and a ones work item 
 
 **Step 0a（feature 级）:** 仅新建流程执行。每次必收：ONES 工作项链接（提取 ones_work_item_id 写入 checkpoint，ones_space_id 写入 project.json）、citadel_parent_id、PRD 链接（提取 prd_content_id）。禁止调用任何外部工具，纯字符串解析。
 
-**Step 0d:** 跳过的唯一条件为 `--frontend-mode`。其他所有模式均需经过此步。pipeline_defaults 已存在时展示当前值 + 适用性提示，询问是否变更，用户选 n 直接复用。不存在时展示两问表单（两次独立 AskUserQuestion）。写入 checkpoint `pipeline_options` 和 project.json `pipeline_defaults`。
+**Step 0d:** 跳过的唯一条件为 `--frontend-mode`。其他所有模式均需经过此步。pipeline_defaults 已存在时展示当前值 + 适用性提示，询问是否变更，用户选 n 直接复用。不存在时单次 AskUserQuestion 调用，包含「文档网关」和「测试模块」两个 question，用户在同一表单里完成选择。写入 checkpoint `pipeline_options` 和 project.json `pipeline_defaults`。
 
 **Step 0a-post:** 仅新建流程执行（restore 路径在 0c-verify 中已补收）。根据 pipeline_options 补收模块字段：skip_papi=false → papi_token、papi_project_id、papi_base_url（均必填）；skip_autotest=false → test_base_domain、test_data_km_url；skip_shepherd=false → shepherd_group_url。缺才问，已有值静默跳过。
 

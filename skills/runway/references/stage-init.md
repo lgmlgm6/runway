@@ -4,16 +4,30 @@
 
 当用户没有传入任何模式 flag（`--lite`、`--litefull`、`--fullstack`、`--frontend-mode`、`--requirements-spec-id`、`--tech-spec-id`）时，在 Step 0-pre 之前展示模式选择表单。已从 checkpoint restore 时跳过。
 
-**AskUserQuestion 上限为 4 个选项，因此使用两步选择，两次调用必须顺序独立，不得合并：**
+**单次 AskUserQuestion 调用，包含两个 question，用户在同一表单里完成选择：**
 
-**第一问 — 仓库范围（3 选 1）：**
-- 后端：单仓后端开发，主 Agent 完成流水线
-- 前端：单仓前端开发，主 Agent 完成流水线
-- 全栈：派发 AgentTeam 前后端并行跑流水线
+```
+questions:
+  - question: "请选择开发范围："
+    header: "仓库范围"
+    multiSelect: false
+    options:
+      - label: "后端"
+        description: "单仓后端开发，主 Agent 完成流水线"
+      - label: "前端"
+        description: "单仓前端开发，主 Agent 完成流水线"
+      - label: "全栈"
+        description: "自动派发 AgentTeam，前后端仓库并行开发，最终汇总结果"
 
-**第二问 — 质量档位（2 选 1）：**
-- 标准：含 PRD Spec + Tech Spec，有 2 个 Hard Gate
-- 轻量：跳过 Spec 阶段，零 Hard Gate
+  - question: "请选择质量档位："
+    header: "质量档位"
+    multiSelect: false
+    options:
+      - label: "标准"
+        description: "质量优先。含 PRD Spec + Tech Spec 全套评审，有 2 个人工确认环节。耗时较长。"
+      - label: "轻量"
+        description: "速度优先。跳过 PRD/Tech Spec，直接读 PRD 生成接口设计，零人工确认。"
+```
 
 6 个选项的内部映射（不展示给用户）：
 
@@ -230,34 +244,29 @@ URL 示例：https://ones.sankuai.com/ones/product/32980/workItem/requirement/de
 
 ### pipeline_defaults 不存在 — 展示表单配置
 
-**⚠️ AskUserQuestion 每次最多 4 个选项，必须拆成两次独立调用，等用户回答第一问后再发起第二问，不得合并。**
+**单次 AskUserQuestion 调用，包含两个 question，用户在同一表单里完成选择：**
 
-**第一次 AskUserQuestion 调用 — 接口文档与网关：**
 ```
-question: "选择要启用的接口文档/网关模块："
-header: "文档网关"
-multiSelect: true
-options:
-  - label: "PAPI 接口同步"
-    description: "Step 2b 在技术方案通过后立即同步接口到 PAPI 平台。跳过影响：接口文档不同步。"
-  - label: "Shepherd 网关配置"
-    description: "CR 后自动配置牧羊人网关（仅 Thrift 项目新增接口）。跳过影响：新接口无法通过网关访问。"
-```
+questions:
+  - question: "选择要启用的接口文档/网关模块："
+    header: "文档网关"
+    multiSelect: true
+    options:
+      - label: "PAPI 接口同步"
+        description: "Step 2b 在技术方案通过后立即同步接口到 PAPI 平台。跳过影响：接口文档不同步。"
+      - label: "Shepherd 网关配置"
+        description: "CR 后自动配置牧羊人网关（仅 Thrift 项目新增接口）。跳过影响：新接口无法通过网关访问。"
 
-等用户回答后，再发起第二次：
-
-**第二次 AskUserQuestion 调用 — 测试自动化：**
-```
-question: "选择要启用的测试自动化模块："
-header: "测试模块"
-multiSelect: true
-options:
-  - label: "测试用例生成"
-    description: "Step 2c 生成接口测试用例文档写入学城。跳过影响：自动测试将无法执行。"
-  - label: "自动部署测试泳道"
-    description: "ee-cargo 将分支部署到测试环境。跳过影响：接口自动测试将无法执行。"
-  - label: "接口自动测试"
-    description: "执行测试用例，自动分析失败，自动修复循环。"
+  - question: "选择要启用的测试自动化模块："
+    header: "测试模块"
+    multiSelect: true
+    options:
+      - label: "测试用例生成"
+        description: "Step 2c 生成接口测试用例文档写入学城。跳过影响：自动测试将无法执行。"
+      - label: "自动部署测试泳道"
+        description: "ee-cargo 将分支部署到测试环境。跳过影响：接口自动测试将无法执行。"
+      - label: "接口自动测试"
+        description: "执行测试用例，自动分析失败，自动修复循环。"
 ```
 
 ### 跳过依赖规则
@@ -291,29 +300,36 @@ PAPI 与 Shepherd 相互独立，互不影响
 
 pipeline_options 确定后立即执行。检查 `project.json` 中对应模块字段是否已有值，**缺失则一次性询问，不得等到对应 Stage 才临时索要**。已有值则静默跳过，不重复询问。
 
-**选了「PAPI 接口同步」（skip_papi=false）→ 以下三项均必填，均缺时合并为一次询问：**
+根据已选模块动态构建 AskUserQuestion，**每个模块对应一个 question（textbox 类型）**，所有缺失模块合并为单次调用（最多 4 个 questions）。已有值的模块静默跳过，不加入表单。
+
 ```
-papi_token      — PAPI 用户 Token
-papi_project_id — PAPI 项目 UUID
-papi_base_url   — 接口路径前缀（必填，不允许为空）
+单次 AskUserQuestion 调用示例（全选时）：
+
+questions:
+  - question: "请填写 PAPI 配置："
+    header: "PAPI 配置"
+    type: textbox
+    description: |
+      请依次填写（每行一项）：
+      1. papi_token — PAPI 用户 Token
+      2. papi_project_id — PAPI 项目 UUID
+      3. papi_base_url — 接口路径前缀（如 /api/v1/freelance）
+
+  - question: "请填写接口自动测试配置："
+    header: "自动测试配置"
+    type: textbox
+    description: |
+      请依次填写（每行一项）：
+      1. test_base_domain — 测试环境基础域名（如 api.test.sankuai.com）
+      2. test_data_km_url — 测试数据学城文档 URL（https://km.sankuai.com/collabpage/xxx）
+         若文档尚未创建，请先在学城新建后填入 URL。
+
+  - question: "请填写 Shepherd 网关配置："
+    header: "Shepherd 配置"
+    type: textbox
+    description: "shepherd_group_url — Shepherd 网关组 URL"
 ```
 
-**选了「自动部署测试泳道」（skip_deploy=false）→ 无需收集：**
-```
-cargo_appkey 固定等于 project.json 中的 appkey，自动复用，不询问用户。
-```
+**自动部署测试泳道（skip_deploy=false）无需收集**：cargo_appkey 固定复用 project.json 中的 appkey，不加入表单。
 
-**选了「接口自动测试」（skip_autotest=false）→ 两项均必填，不允许为空：**
-```
-test_base_domain — 测试环境基础域名
-                   用于拼接 Stage 9 的测试 URL：https://{swimlane}-sl-{test_base_domain}
-test_data_km_url — 测试数据学城文档 URL（runway-autotest 执行测试时读取占位符，必须存在）
-                   若文档尚未创建，引导用户先在学城新建文档后再填入 URL。
-```
-
-**选了「Shepherd 网关配置」（skip_shepherd=false）→ 必填：**
-```
-shepherd_group_url — Shepherd 网关组 URL
-```
-
-收集完毕后写入 `.runway/project.json`。初始化完成，进入 Stage 1（standard/fullstack）或 Stage 0.5（lite/litefull）。
+收集完毕后解析用户输入，按行拆分写入 `.runway/project.json`。初始化完成，进入 Stage 1（standard/fullstack）或 Stage 0.5（lite/litefull）。

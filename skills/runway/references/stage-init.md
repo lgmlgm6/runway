@@ -320,8 +320,8 @@ questions:
     type: textbox
     description: |
       请依次填写（每行一项）：
-      1. test_base_domain — 测试环境基础域名（如 api.test.sankuai.com）
-      2. test_data_km_url — 测试数据学城文档 URL（https://km.sankuai.com/collabpage/xxx）
+      1. test_base_domain — 测试环境域名（如 api.test.sankuai.com）
+      2. test_data_km_url — 测试数据文档 URL（https://km.sankuai.com/collabpage/xxx）
          若文档尚未创建，请先在学城新建后填入 URL。
 
   - question: "请填写 Shepherd 网关配置："

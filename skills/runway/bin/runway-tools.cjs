@@ -64,6 +64,19 @@ function parseScalar(value) {
   return value;
 }
 
+function parseJsonArg(args, key, fallback = null) {
+  if (!Object.prototype.hasOwnProperty.call(args, key)) {
+    return fallback;
+  }
+
+  const value = args[key];
+  if (value == null || value === '') {
+    return fallback;
+  }
+
+  return JSON.parse(value);
+}
+
 function readContentArg(args, key) {
   const directKey = key;
   const fileKey = `${key}_file`;
@@ -164,6 +177,33 @@ function handleCheckpointWrite(args) {
     head_sha: hasArg('head_sha') ? args.head_sha : (existing.head_sha ?? null),
     current_stage: hasArg('current_stage') ? Number(args.current_stage) : (existing.current_stage ?? null),
     updated_at: hasArg('updated_at') ? args.updated_at : (existing.updated_at ?? null),
+    // --- 扩展阶段字段 ---
+    pipeline_mode: hasArg('pipeline_mode') ? args.pipeline_mode : (existing.pipeline_mode ?? null),
+    fullstack_handoff_status: hasArg('fullstack_handoff_status') ? args.fullstack_handoff_status : (existing.fullstack_handoff_status ?? null),
+    pipeline_options: hasArg('pipeline_options') ? parseJsonArg(args, 'pipeline_options') : (existing.pipeline_options ?? null),
+    papi_sync_status: hasArg('papi_sync_status') ? args.papi_sync_status : (existing.papi_sync_status ?? null),
+    papi_synced_apis: hasArg('papi_synced_apis') ? parseJsonArg(args, 'papi_synced_apis') : (existing.papi_synced_apis ?? null),
+    tclist_content_id: hasArg('tclist_content_id') ? args.tclist_content_id : (existing.tclist_content_id ?? null),
+    shepherd_config_status: hasArg('shepherd_config_status') ? args.shepherd_config_status : (existing.shepherd_config_status ?? null),
+    cargo_stack_uuid: hasArg('cargo_stack_uuid') ? args.cargo_stack_uuid : (existing.cargo_stack_uuid ?? null),
+    cargo_swimlane: hasArg('cargo_swimlane') ? args.cargo_swimlane : (existing.cargo_swimlane ?? null),
+    cargo_base_url: hasArg('cargo_base_url') ? args.cargo_base_url : (existing.cargo_base_url ?? null),
+    cargo_test_url: hasArg('cargo_test_url') ? args.cargo_test_url : (existing.cargo_test_url ?? null),
+    test_report_content_id: hasArg('test_report_content_id') ? args.test_report_content_id : (existing.test_report_content_id ?? null),
+    test_failed_count: hasArg('test_failed_count') ? Number(args.test_failed_count) : (existing.test_failed_count ?? null),
+    test_failed_ids: hasArg('test_failed_ids') ? parseJsonArg(args, 'test_failed_ids') : (existing.test_failed_ids ?? null),
+    bug_analysis_content_id: hasArg('bug_analysis_content_id') ? args.bug_analysis_content_id : (existing.bug_analysis_content_id ?? null),
+    fix_round: hasArg('fix_round') ? Number(args.fix_round) : (existing.fix_round ?? 0),
+    fix_loop_status: hasArg('fix_loop_status') ? args.fix_loop_status : (existing.fix_loop_status ?? 'idle'),
+    // --- 角色/模式字段 ---
+    qa_mode: hasArg('qa_mode') ? args.qa_mode : (existing.qa_mode ?? null),
+    skip_retrospective: hasArg('skip_retrospective') ? (args.skip_retrospective === 'true' || args.skip_retrospective === true) : (existing.skip_retrospective ?? null),
+    // --- fullstack/litefull teammate 字段 ---
+    role: hasArg('role') ? args.role : (existing.role ?? null),
+    team_mode: hasArg('team_mode') ? (args.team_mode === 'true' || args.team_mode === true) : (existing.team_mode ?? null),
+    leader_name: hasArg('leader_name') ? args.leader_name : (existing.leader_name ?? null),
+    mini_spec_path: hasArg('mini_spec_path') ? args.mini_spec_path : (existing.mini_spec_path ?? null),
+    spec_context_path: hasArg('spec_context_path') ? args.spec_context_path : (existing.spec_context_path ?? null),
   };
 
   writeCheckpoint(rootDir, checkpoint);
@@ -370,15 +410,29 @@ function handleProjectMemoryInit(args) {
     return;
   }
 
-  fs.writeFileSync(projectPath, `${JSON.stringify({
+  // 必填字段
+  const data = {
     mis: requireArg(args, 'mis'),
-    app_id: requireArg(args, 'app_id'),
-    ones_space_id: requireArg(args, 'ones_space_id'),
-    build_cmd: '',
-    test_cmd: '',
-    lint_cmd: '',
+    app_id: args.app_id ?? '',
+    ones_space_id: args.ones_space_id ?? '',
+    build_cmd: args.build_cmd ?? '',
+    test_cmd: args.test_cmd ?? '',
+    lint_cmd: args.lint_cmd ?? '',
     notes: '',
-  }, null, 2)}\n`);
+  };
+
+  // 可选字段：有值才写入，保持文件简洁
+  const optionals = [
+    'papi_base_url', 'papi_project_id', 'papi_token',
+    'cargo_appkey',
+    'test_base_domain',
+    'shepherd_group_url', 'test_data_km_url',
+  ];
+  for (const k of optionals) {
+    if (args[k]) data[k] = args[k];
+  }
+
+  fs.writeFileSync(projectPath, `${JSON.stringify(data, null, 2)}\n`);
 
   printJson({
     path: relativeToRoot(rootDir, projectPath),

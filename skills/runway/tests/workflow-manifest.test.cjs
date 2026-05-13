@@ -16,9 +16,9 @@ const { initStateFile } = require('../lib/state.cjs');
 
 // ── manifest structure ────────────────────────────────────────────────────────
 
-test('manifest has all 7 stages with required control-plane fields', () => {
+test('manifest has all 12 stages with required control-plane fields', () => {
   const requiredFields = ['skill', 'hardGate', 'inputs', 'outputs', 'loopName', 'maxIterations', 'completionPromise'];
-  for (let stage = 1; stage <= 7; stage++) {
+  for (let stage = 1; stage <= 12; stage++) {
     const s = WORKFLOW_MANIFEST.stages[stage];
     assert.ok(s, `stage ${stage} missing from manifest`);
     for (const field of requiredFields) {
@@ -30,17 +30,17 @@ test('manifest has all 7 stages with required control-plane fields', () => {
 test('manifest hard gates are only on stages 1 and 2', () => {
   assert.equal(WORKFLOW_MANIFEST.stages[1].hardGate, true);
   assert.equal(WORKFLOW_MANIFEST.stages[2].hardGate, true);
-  for (let stage = 3; stage <= 7; stage++) {
+  for (let stage = 3; stage <= 12; stage++) {
     assert.equal(WORKFLOW_MANIFEST.stages[stage].hardGate, false, `stage ${stage} should not be a hard gate`);
   }
 });
 
-test('manifest pipeline loop stages have loopName, maxIterations, and completionPromise', () => {
-  for (const stage of [5, 6, 7]) {
+test('manifest pipeline loop stages share the pipeline contract', () => {
+  for (const stage of [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) {
     const s = WORKFLOW_MANIFEST.stages[stage];
     assert.equal(s.loopName, 'pipeline.local.md', `stage ${stage} loopName`);
     assert.ok(s.maxIterations > 0, `stage ${stage} maxIterations must be positive`);
-    assert.ok(typeof s.completionPromise === 'string' && s.completionPromise.length > 0, `stage ${stage} completionPromise must be a non-empty string`);
+    assert.equal(s.completionPromise, 'RUNWAY STAGES 3-12 COMPLETE');
   }
 });
 
@@ -51,32 +51,52 @@ test('manifest stage 2 uses triangle loop and has no completionPromise', () => {
   assert.ok(s2.maxIterations > 0);
 });
 
-test('manifest stages 1, 3, 4 have no loop', () => {
-  for (const stage of [1, 3, 4]) {
-    assert.equal(WORKFLOW_MANIFEST.stages[stage].loopName, null, `stage ${stage} should have no loop`);
-  }
+test('manifest stage 1 has no loop', () => {
+  assert.equal(WORKFLOW_MANIFEST.stages[1].loopName, null, 'stage 1 should have no loop');
 });
 
-test('manifest invalidation map covers all known artifacts', () => {
+test('manifest invalidation map covers the expanded artifact graph', () => {
   const artifacts = Object.keys(WORKFLOW_MANIFEST.invalidation);
-  const expected = ['requirements_spec', 'tech_spec', 'task_plan', 'branch_execution', 'execution_report', 'cr_report', 'qa_report'];
+  const expected = [
+    'requirements_spec',
+    'tech_spec',
+    'task_plan',
+    'papi_sync',
+    'test_cases',
+    'branch_execution',
+    'execution_report',
+    'cr_report',
+    'shepherd_config',
+    'qa_report',
+    'deploy_stack',
+    'test_report',
+    'bug_analysis',
+    'project_knowledge',
+  ];
   assert.deepEqual(artifacts.sort(), expected.sort());
 });
 
-test('manifest artifactToStage covers all artifacts and maps to correct stages', () => {
+test('manifest artifactToStage covers all expanded artifacts and maps to correct stages', () => {
   assert.equal(WORKFLOW_MANIFEST.artifactToStage.requirements_spec, 1);
   assert.equal(WORKFLOW_MANIFEST.artifactToStage.tech_spec, 2);
   assert.equal(WORKFLOW_MANIFEST.artifactToStage.task_plan, 3);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.papi_sync, 3);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.test_cases, 3);
   assert.equal(WORKFLOW_MANIFEST.artifactToStage.branch_execution, 4);
   assert.equal(WORKFLOW_MANIFEST.artifactToStage.execution_report, 5);
   assert.equal(WORKFLOW_MANIFEST.artifactToStage.cr_report, 6);
-  assert.equal(WORKFLOW_MANIFEST.artifactToStage.qa_report, 7);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.shepherd_config, 7);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.qa_report, 8);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.deploy_stack, 9);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.test_report, 10);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.bug_analysis, 11);
+  assert.equal(WORKFLOW_MANIFEST.artifactToStage.project_knowledge, 12);
 });
 
 // ── contracts re-export from manifest ────────────────────────────────────────
 
-test('contracts.cjs STAGE_CONTRACTS is derived from manifest and has all 7 stages', () => {
-  for (let stage = 1; stage <= 7; stage++) {
+test('contracts.cjs STAGE_CONTRACTS is derived from manifest and has all 12 stages', () => {
+  for (let stage = 1; stage <= 12; stage++) {
     const contract = STAGE_CONTRACTS[stage];
     assert.ok(contract, `STAGE_CONTRACTS missing stage ${stage}`);
     assert.equal(contract.stage, stage);
@@ -87,9 +107,9 @@ test('contracts.cjs STAGE_CONTRACTS is derived from manifest and has all 7 stage
   }
 });
 
-test('getStageContract returns correct contract for stage 3', () => {
+test('getStageContract returns correct compound contract for stage 3', () => {
   const contract = getStageContract(3);
-  assert.equal(contract.skill, 'runway-task-planning');
+  assert.equal(contract.skill, 'runway-task-planning (+ runway-papi / runway-tclist)');
   assert.equal(contract.hardGate, false);
   assert.deepEqual(contract.requiredOutputs, ['plan_path']);
 });
@@ -103,9 +123,13 @@ test('validateStageTransition fails when required outputs are missing', () => {
 
 test('validateStageTransition succeeds with required handoff payload', () => {
   const result = validateStageTransition({
-    fromStage: 3,
-    toStage: 4,
-    payload: { plan_path: '.runway/plans/2026-05-07-feature.md' },
+    fromStage: 10,
+    toStage: 11,
+    payload: {
+      test_report_content_id: 'km-123',
+      test_failed_count: 2,
+      test_failed_ids: ['TC-1-1'],
+    },
   });
   assert.equal(result.ok, true);
   assert.equal(result.contract.hardGate, false);
@@ -124,14 +148,14 @@ test('computeInvalidatedArtifacts for requirements_spec matches manifest', () =>
   );
 });
 
-test('getEarliestInvalidatedStage returns correct stage for cr_report + qa_report', () => {
-  assert.equal(getEarliestInvalidatedStage(['cr_report', 'qa_report']), 6);
+test('getEarliestInvalidatedStage returns correct stage for cr_report + qa_report + project_knowledge', () => {
+  assert.equal(getEarliestInvalidatedStage(['cr_report', 'qa_report', 'project_knowledge']), 6);
 });
 
 test('markArtifactsInvalid deduplicates and sorts by stage', () => {
   const result = markArtifactsInvalid({ invalidated_artifacts: ['qa_report'] }, 'task_plan');
   assert.deepEqual(result.invalidated_artifacts, [
-    'branch_execution', 'execution_report', 'cr_report', 'qa_report',
+    'branch_execution', 'execution_report', 'cr_report', 'shepherd_config', 'qa_report', 'deploy_stack', 'test_report', 'bug_analysis', 'project_knowledge',
   ]);
   assert.equal(result.resume_from_stage, 4);
 });
@@ -163,12 +187,12 @@ test('loop-init creates pipeline state for stage 5 in standalone mode', () => {
   assert.ok(fs.existsSync(path.join(rootDir, '.claude', 'runway-state', 'pipeline.local.md')));
 });
 
-test('loop-init skips creation for stage 4 which has no loop', () => {
+test('loop-init creates pipeline loop for stage 4', () => {
   const rootDir = makeTempRoot();
-  const result = runLoopInit(rootDir, 4, 'sess-noop');
+  const result = runLoopInit(rootDir, 4, 'sess-stage4');
   const out = JSON.parse(result.stdout);
-  assert.equal(out.created, false);
-  assert.match(out.reason, /no loop/);
+  assert.equal(out.created, true);
+  assert.equal(out.loopName, 'pipeline.local.md');
 });
 
 test('loop-init detects orchestrator-owned active state and does not create competing loop', () => {
@@ -179,7 +203,7 @@ test('loop-init detects orchestrator-owned active state and does not create comp
     name: 'pipeline.local.md',
     mode: 'pipeline',
     maxIterations: 200,
-    completionPromise: 'RUNWAY STAGES 5-7 COMPLETE',
+    completionPromise: 'RUNWAY STAGES 3-12 COMPLETE',
     sessionId: 'sess-orch',
     startedAt: new Date().toISOString(),
     prompt: 'orchestrator prompt',

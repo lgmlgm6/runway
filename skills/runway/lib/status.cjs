@@ -92,6 +92,22 @@ function buildArtifactsStatus(rootDir, checkpoint) {
   return stripNullish({
     requirements_spec: normalizeArtifactLocation(rootDir, checkpoint?.requirements_spec_content_id),
     tech_spec: normalizeArtifactLocation(rootDir, checkpoint?.tech_spec_content_id),
+    task_plan: checkpoint?.plan_path ? { path: checkpoint.plan_path } : null,
+    papi_sync: (checkpoint?.papi_sync_status || checkpoint?.papi_synced_apis) ? {
+      status: checkpoint?.papi_sync_status ?? null,
+      synced_apis: checkpoint?.papi_synced_apis ?? null,
+    } : null,
+    test_cases: normalizeArtifactLocation(rootDir, checkpoint?.tclist_content_id),
+    shepherd_config: checkpoint?.shepherd_config_status ? {
+      status: checkpoint.shepherd_config_status,
+    } : null,
+    test_report: normalizeArtifactLocation(rootDir, checkpoint?.test_report_content_id),
+    bug_analysis: normalizeArtifactLocation(rootDir, checkpoint?.bug_analysis_content_id),
+    deploy_stack: checkpoint?.cargo_stack_uuid ? {
+      stack_uuid: checkpoint.cargo_stack_uuid,
+      base_url: checkpoint.cargo_base_url ?? null,
+      swimlane: checkpoint.cargo_swimlane ?? null,
+    } : null,
   });
 }
 

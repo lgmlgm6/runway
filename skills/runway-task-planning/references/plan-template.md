@@ -4,7 +4,7 @@
 # Implementation Plan: {Feature Name}
 
 **Date:** {YYYY-MM-DD}
-**Tech Spec:** {xuecheng link}
+**Spec Context:** {.runway/docs/{ones_id}/spec-context.md}
 **Estimated Waves:** {N}
 **Estimated Tasks:** {M}
 
@@ -37,16 +37,6 @@ All MISSING items resolved as Wave 0 prerequisite tasks or accepted risks.
 |------|--------------|-----------|
 | Wave 1 | FileA, FileB, FileC | none ✓ |
 | Wave 2 | FileD, FileE | none ✓ |
-
-## 设计项 → 计划项映射
-
-| 来源章节 | 设计项 | 对应任务 / Wave / blocker | 处理状态 |
-|----------|--------|---------------------------|----------|
-| `二、详细设计` | `{模块 / 服务 / 页面}` | `Task 1.1 / Wave 1` | 已映射 |
-| `三、接口协议变更` | `{接口 / API / 事件 / 数据契约变化}` | `Task 1.2 / Wave 1` | 已映射 |
-| `四、基础设施设计` | `{配置 / 存储 / 消息 / 定时任务 / 外部依赖项}` | `Task 2.1 / Wave 2` 或 `不需要任务 — 原因` | 已处置 |
-| `五、验证策略` | `{关键风险 / 验证场景}` | `Task 2.1` 或 `Wave 2 Integration Verification` | 已映射 |
-| `六、待决策项` | `{待决策项}` | `已解决` / `Wave 0 前置` / `blocker` / `风险接受` | 已分类 |
 
 ---
 
@@ -83,43 +73,12 @@ Goal: {what this wave establishes}
 **Wave:** 1 — parallel with Task 1.2
 **Conflict Guard:** `No same-wave overlap with {files/interfaces}`
 
-**TC 覆盖清单（来自 AC）：**
-- [ ] TC-01-a (AC-01, P0): Given {具体前置条件}, When {具体调用}, Then {可断言的结果}
-- [ ] TC-01-b (AC-01, P0): Given {边界/异常条件}, When {具体调用}, Then {降级/异常结果}
-
-> 如无 AC 表，删除此 TC 覆盖清单块。每条 TC 对应独立测试方法，方法名包含 TC 编号（如 `TC01a_whenXxx_thenYyy`）。不允许用一个测试方法覆盖多条 TC。
-
-- [ ] Step 1: Write failing test — 为每条 TC 写一个 failing test
+- [ ] Step 1: Implement
   ```{lang}
-  // TC-01-a: {TC描述}
-  @Test
-  void TC01a_when{Condition}_then{Result}() {
-      // complete test code — no placeholders
-  }
-
-  // TC-01-b: {TC描述}
-  @Test
-  void TC01b_when{Condition}_then{Result}() {
-      // complete test code — no placeholders
-  }
-  ```
-  Run: `{exact command}`
-  Expected: FAIL — `{exact failure message}`
-
-- [ ] Step 2: Verify failure
-  Run: `{exact command}`
-  Confirm: `{failure keyword}`
-
-- [ ] Step 3: Implement
-  ```{lang}
-  // complete implementation
+  // complete implementation — no placeholders
   ```
 
-- [ ] Step 4: Verify pass
-  Run: `{exact command}`
-  Expected: PASS
-
-- [ ] Step 5: Commit
+- [ ] Step 2: Commit
   ```bash
   git add {file list}
   git commit -m "{type}: {description}"
@@ -132,27 +91,12 @@ Goal: {what this wave establishes}
 **Wave:** 1 — parallel with Task 1.1
 **Conflict Guard:** `No same-wave overlap with {files/interfaces}`
 
-- [ ] Step 1: Write failing test
+- [ ] Step 1: Implement
   ```{lang}
-  // complete test code
-  ```
-  Run: `{exact command}`
-  Expected: FAIL — `{exact failure message}`
-
-- [ ] Step 2: Verify failure
-  Run: `{exact command}`
-  Confirm: `{failure keyword}`
-
-- [ ] Step 3: Implement
-  ```{lang}
-  // complete implementation
+  // complete implementation — no placeholders
   ```
 
-- [ ] Step 4: Verify pass
-  Run: `{exact command}`
-  Expected: PASS
-
-- [ ] Step 5: Commit
+- [ ] Step 2: Commit
   ```bash
   git add {file list}
   git commit -m "{type}: {description}"
@@ -183,27 +127,12 @@ Goal: {what this wave builds on top of Wave 1}
 **Wave:** 2 — serial after Wave 1
 **Conflict Guard:** `No same-wave overlap; start only after {dependency or contract} is complete`
 
-- [ ] Step 1: Write failing test
+- [ ] Step 1: Implement
   ```{lang}
-  // complete test code
-  ```
-  Run: `{exact command}`
-  Expected: FAIL — `{exact failure message}`
-
-- [ ] Step 2: Verify failure
-  Run: `{exact command}`
-  Confirm: `{failure keyword}`
-
-- [ ] Step 3: Implement
-  ```{lang}
-  // complete implementation
+  // complete implementation — no placeholders
   ```
 
-- [ ] Step 4: Verify pass
-  Run: `{exact command}`
-  Expected: PASS
-
-- [ ] Step 5: Commit
+- [ ] Step 2: Commit
   ```bash
   git add {file list}
   git commit -m "{type}: {description}"

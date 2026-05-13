@@ -7,7 +7,7 @@ Use this guide when the workflow stalls, a stage output becomes stale, or the en
 ### Workflow state file is stale or inconsistent
 - Rebuild state from the latest confirmed artifacts, not from guesswork.
 - Repair `.runway/checkpoint-{ones_work_item_id}.json` first; treat `.claude/runway-state/*.md` as loop-control state, not artifact truth.
-- Only the Stage 4-7 pipeline loop should trigger Stop-hook exit protection; Stage 2 triangle state is resume metadata only.
+- Only the Stage 5-12 pipeline loop should trigger Stop-hook exit protection; Stage 2 triangle state is resume metadata only.
 - Resume from the earliest stage whose output is no longer trustworthy.
 
 ### Upstream artifact changed after a hard gate
@@ -150,6 +150,24 @@ git checkout <existing-branch>
 **Duplicate findings flood the report**
 - Cluster them under one issue key before deciding whether to fix or reject.
 - Preserve the highest severity in the cluster.
+
+---
+
+## Error Handling — Quick Reference
+
+| Situation | Action |
+|-----------|--------|
+| citadel auth fails | Run `oa-skills citadel --clear-cache`, retry once. If still fails: save doc locally to `.runway/docs/{stage}-draft.md`, record contentId as `local:{path}` in checkpoint, continue workflow with local file. |
+| citadel getMarkdown fails | Ask user to paste PRD content directly into chat. Continue with pasted content. Record `prd_content_id: manual-input`. |
+| citadel createDocument fails | Save locally to `.runway/docs/{ones_id}/{stage}-draft.md`. Record `contentId: local:{path}`. Notify: "学城上传失败，已保存本地，流程继续。" |
+| ones auth fails | Run `ones sso login --ciba`, retry once. If still fails: skip branch creation, record `branch_name: manual-pending`, continue to Stage 5 on current branch. |
+| ones bg fails | Fallback: `git checkout -b feature/{ones_work_item_id}-dev`. Continue. |
+| ones ba fails | Log warning: "分支关联失败，可手动在 ONES 中关联。" Continue without blocking. |
+| ones wu fails | Log warning: "ONES 状态更新失败，请手动更新。" Continue without blocking. |
+| ones space-apps fails | Fall back to appId from `.runway/project.json` or `CLAUDE.md`. If none found, ask user once. |
+| Stage BLOCKED with no path forward | Pause, explain blocker clearly, wait for user input. |
+| User says "stop" or "cancel" | Stop immediately, print current state block so user can resume later. |
+| State file stale or inconsistent | Rebuild state from latest confirmed artifacts, record the repair, then continue. |
 
 ---
 

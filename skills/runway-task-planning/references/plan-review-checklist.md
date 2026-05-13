@@ -9,15 +9,6 @@ Run this checklist after writing the plan, before presenting it to the user.
 - [ ] Every task has at least one explicit test step
 - [ ] Shared interfaces and data model changes appear in at least one task
 
-## Stage 2 → Stage 3 Handoff Coverage
-
-- [ ] `二、详细设计` 的每个模块均已被任务覆盖或写明原因
-- [ ] `三、接口协议变更` 的每个契约变化均已落到任务
-- [ ] `四、基础设施设计` 的每个涉及项均已处置
-- [ ] `五、验证策略` 的关键风险均映射到测试 / 集成验证
-- [ ] `六、待决策项` 的每项均已有处置分类
-- [ ] 不允许只在 prose 中“提到会处理”，但没有对应任务 / Wave / blocker
-
 ## Zero Placeholder Scan
 
 Search for these strings — if found, replace with real content before proceeding:
@@ -89,15 +80,6 @@ For each feature task:
 - [ ] Step 2 explicitly runs and verifies failure
 - [ ] Failure message is the right failure, not a syntax/import/setup error
 - [ ] Implementation comes only after confirmed failure
-
-## TC Coverage (when AC table exists)
-
-If `.runway/tmp/tc-list.md` was generated in Step 1.5:
-- [ ] 每个任务包含 TC 覆盖清单，TC 编号可追溯到 AC 编号
-- [ ] TC 清单里的每条 TC 在 Step 1 都有对应的独立测试方法
-- [ ] 测试方法名包含 TC 编号（如 `TC01a_whenXxx_thenYyy`）
-- [ ] 没有用单个测试方法覆盖多条 TC
-- [ ] P0 TC 全部有对应测试，不允许遗漏
 
 ## Ready-for-Execution Gate
 

@@ -46,6 +46,23 @@ LOOP (max 5 rounds):
 [Fail] Failure report → escalate
 ```
 
+## Step 0: Load Role Context
+
+Read the `role` field from the checkpoint (default: `"backend"`):
+
+```bash
+ROLE=$(jq -r '.role // "backend"' .runway/checkpoint-*.json 2>/dev/null | head -1)
+SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway-qa-verify}"
+SKILL_ROOT="${SKILL_ROOT:-$HOME/.claude/skills/runway-qa-verify}"
+ROLE_FILE="${SKILL_ROOT}/roles/${ROLE}.md"
+```
+
+If `ROLE_FILE` exists, read it and apply its verification targets and acceptance criteria. The role file defines which verification steps to run and which to skip:
+- `role=backend`：run `--all` (build + lint + test + typecheck)
+- `role=frontend`：run `--build --lint` only, skip test and typecheck
+
+If `ROLE_FILE` does not exist, default to `--all`.
+
 ## Step 1: Confirm Commands
 
 Before starting, verify the exact commands for this project. Check `package.json`, `Makefile`, `pyproject.toml`, `go.mod`, and CI config as appropriate. Do not assume.
@@ -116,58 +133,7 @@ After any fix, re-run **all selected targets**, not just the one that failed. Fr
 | Same failure 3 rounds in a row | → Step 4 (failure report) |
 | Environment error (not code) | → Step 4 (failure report, note env issue) |
 
-## Step 3: AC Coverage Scan
-
-Run this step after the QA loop passes, before producing the evidence summary.
-
-For each P0 TC in `.runway/tmp/tc-list.md`, perform a two-phase check:
-
-### Phase 1: Find test method
-
-```bash
-# Locate the file containing the TC编号
-grep -r "TC-{编号}" src/test/ --include="*.java" --include="*.kt" \
-  --include="*.ts" --include="*.py" --include="*.go" -l
-```
-
-If not found → status = ⚠️ 未覆盖, skip Phase 2.
-
-### Phase 2: Verify the method has a substantive assertion
-
-Read the test method body (from the line containing `TC-{编号}` to the next method boundary). Check whether it contains at least one substantive assertion:
-
-| Language | Assertion patterns to look for |
-|----------|-------------------------------|
-| Java/Kotlin | `assert`, `assertEquals`, `assertThat`, `verify(`, `ArgumentCaptor` |
-| TypeScript/JS | `expect(`, `assert.`, `toBe(`, `toEqual(`, `toContain(` |
-| Python | `assert `, `assertEqual`, `assertIn`, `pytest.raises` |
-| Go | `t.Error`, `t.Fatal`, `assert.Equal`, `require.Equal` |
-
-**Java `verify()` clarification:** A Mockito `verify(mock, times(N)).method(...)` call **counts as a substantive assertion** — it asserts that a specific interaction occurred. Bare `when(...).thenReturn(...)` stubs with no `verify()` or `assert*` do **not** count.
-
-If the method body contains **only** setup/mock calls with no assertion → status = ⚠️ 断言缺失 (method exists but does not verify behavior)
-
-### Coverage table
-
-```markdown
-## AC Coverage
-
-| AC编号 | TC编号  | 优先级 | 测试方法                          | 状态         |
-|--------|---------|--------|----------------------------------|--------------|
-| AC-01  | TC-01-a | P0     | TC01a_whenTabIdValid_thenFiltered | ✅ 已覆盖     |
-| AC-02  | TC-02-a | P0     | TC02a_whenTabIdNull_noFilter      | ⚠️ 断言缺失  |
-| AC-03  | TC-03-a | P0     | —                                | ⚠️ 未覆盖    |
-```
-
-### Rules
-
-- ✅ 已覆盖：method found AND has substantive assertion
-- ⚠️ 断言缺失：method found BUT no substantive assertion — record as finding, do not block
-- ⚠️ 未覆盖：method not found — record as finding, do not block
-- Any ⚠️ finding → surface in Evidence Summary under "AC Coverage Gaps" for human review
-- Do not fail the QA stage solely due to coverage gaps; the gaps are the signal
-
-## Step 4: Evidence Summary (on pass)
+## Step 3: Evidence Summary (on pass)
 
 ```markdown
 # Verification Evidence: {feature}
@@ -203,14 +169,11 @@ Result: ✅ no errors
 ## Commits (this session)
 {git log --oneline {base}..HEAD}
 
-### AC Coverage
-{paste AC Coverage table from Step 3, or "No TC list found — AC coverage scan skipped"}
-
 ---
 Evidence collected at {timestamp}. Development complete.
 ```
 
-## Step 5: Failure Report (on escalation)
+## Step 4: Failure Report (on escalation)
 
 ```markdown
 # QA Failure Report: {feature}
@@ -244,6 +207,7 @@ After producing the evidence summary, save it through the shared runtime helper 
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
 ONES_ID=$(jq -r '.ones_work_item_id' .runway/checkpoint-*.json 2>/dev/null | head -1)
 if [[ -n "$ONES_ID" ]]; then
   mkdir -p .runway/tmp
@@ -251,7 +215,7 @@ if [[ -n "$ONES_ID" ]]; then
 {QA_REPORT_CONTENT}
 EOF
   node "$RUNWAY_TOOLS" report-write \
-    --root "$PWD" \
+    --root "$PROJECT_ROOT" \
     --ones-id "$ONES_ID" \
     --report qa_report \
     --content-file .runway/tmp/qa-report.md
@@ -264,7 +228,7 @@ Evidence summary produced, all targets pass. **Stage 7 QA complete.**
 
 **Scope boundary:** This skill's responsibility ends here. The overall development workflow completion (including ONES status update, retrospective, asset checks, and pipeline promise) is owned by the `runway` orchestrator, not by this skill. Do not output any `<promise>` tags from this skill.
 
-**Artifacts for downstream stages:** The saved QA report is an input to the orchestrator's completion and Stage 8 retrospective flow; it is not a standalone completion signal by itself.
+**Artifacts for downstream stages:** The saved QA report is an input to the orchestrator's Stage 12 retrospective and completion flow; it is not a standalone completion signal by itself.
 
 ## Red Flags — Stop Immediately If:
 

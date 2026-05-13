@@ -41,6 +41,21 @@ Log Minor issues
 Produce review report → return control to orchestrator
 ```
 
+## Step 0: Load Role Context
+
+Read the `role` field from the checkpoint (default: `"backend"`):
+
+```bash
+ROLE=$(jq -r '.role // "backend"' .runway/checkpoint-*.json 2>/dev/null | head -1)
+SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway-code-review-fix}"
+SKILL_ROOT="${SKILL_ROOT:-$HOME/.claude/skills/runway-code-review-fix}"
+ROLE_FILE="${SKILL_ROOT}/roles/${ROLE}.md"
+```
+
+If `ROLE_FILE` exists, read it and inject its contents as CR review dimensions for all three reviewer subagent dispatches. The role file defines the specific review dimensions, severity judgments, and quality standards for this project type (backend vs frontend).
+
+If `ROLE_FILE` does not exist, continue with default backend behavior.
+
 ## Step 1: Get Branch Info
 
 **Before resolving branch info, ensure the pipeline loop state is active (standalone path creates it; orchestrated path reuses the existing one):**
@@ -48,8 +63,9 @@ Produce review report → return control to orchestrator
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
 node "$RUNWAY_TOOLS" loop-init \
-  --root "$PWD" \
+  --root "$PROJECT_ROOT" \
   --stage 6 \
   --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
   --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -173,9 +189,12 @@ Expand scope beyond the changed files if the fix touched:
 - Any Issue Key appears unresolved for 3 consecutive rounds → stop, escalate that cluster to user
 - Round 5 reached with remaining issues → stop, produce failure report
 
-Before escalating to the user, deactivate the pipeline state so the Stop hook does not re-inject a continuation prompt:
+**⚠️ NEVER deactivate the pipeline loop while waiting for background reviewer subagents to complete.**
+Waiting for reviewer notifications is NOT a pause condition. When the stop hook fires while reviewers are in-flight, simply respond "Reviewers still running, waiting for notifications" and end the turn — do NOT call `state-update --active false`.
+
+Only deactivate immediately before entering a true user-input escalation:
 ```bash
-node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false
+node "$RUNWAY_TOOLS" state-update --root "$PROJECT_ROOT" --name pipeline.local.md --active false
 ```
 
 ## Step 6: Review Report
@@ -218,7 +237,7 @@ if [[ -n "$ONES_ID" ]]; then
 {CR_REPORT_CONTENT}
 EOF
   node "$RUNWAY_TOOLS" report-write \
-    --root "$PWD" \
+    --root "$PROJECT_ROOT" \
     --ones-id "$ONES_ID" \
     --report cr_report \
     --content-file .runway/tmp/cr-report.md

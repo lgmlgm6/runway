@@ -11,19 +11,31 @@ test('requirements spec invalidates all downstream artifacts', () => {
   assert.deepEqual(computeInvalidatedArtifacts('requirements_spec'), [
     'tech_spec',
     'task_plan',
+    'papi_sync',
+    'test_cases',
     'branch_execution',
     'execution_report',
     'cr_report',
+    'shepherd_config',
     'qa_report',
+    'deploy_stack',
+    'test_report',
+    'bug_analysis',
+    'project_knowledge',
   ]);
 });
 
-test('code changes after execution report invalidate downstream reports only', () => {
+test('execution report invalidates all later verification and release artifacts', () => {
   assert.deepEqual(computeInvalidatedArtifacts('execution_report'), [
     'cr_report',
+    'shepherd_config',
     'qa_report',
+    'deploy_stack',
+    'test_report',
+    'bug_analysis',
+    'project_knowledge',
   ]);
-  assert.equal(getEarliestInvalidatedStage(['cr_report', 'qa_report']), 6);
+  assert.equal(getEarliestInvalidatedStage(['cr_report', 'test_report', 'project_knowledge']), 6);
 });
 
 test('markArtifactsInvalid deduplicates and sorts invalidated artifacts by stage order', () => {
@@ -36,7 +48,12 @@ test('markArtifactsInvalid deduplicates and sorts invalidated artifacts by stage
     'branch_execution',
     'execution_report',
     'cr_report',
+    'shepherd_config',
     'qa_report',
+    'deploy_stack',
+    'test_report',
+    'bug_analysis',
+    'project_knowledge',
   ]);
   assert.equal(updated.resume_from_stage, 4);
 });

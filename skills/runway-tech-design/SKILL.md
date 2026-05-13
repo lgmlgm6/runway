@@ -16,6 +16,9 @@ Do not proceed to runway-task-planning until the tech spec is explicitly approve
 
 Activate after runway-prd-analysis completes. Input: requirements spec (xuecheng link or markdown). This is Stage 2 of the dev workflow.
 
+**编排器传入的额外参数（Step 4.5 使用）：**
+- `papi_base_url` — 新增接口 PATH 前缀，来自 project.json（如 `/api/freelance`）；缺失时新增接口 PATH 不加前缀
+
 ## Process
 
 ```
@@ -56,7 +59,8 @@ Step 4 (deliberate mode) and Step 5 (self-review) are internal quality steps, no
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-KNOWLEDGE_S2=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 2 --format prompt 2>/dev/null || echo "")
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+KNOWLEDGE_S2=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PROJECT_ROOT" --inject-into-stage 2 --format prompt 2>/dev/null || echo "")
 ```
 
 如果 `KNOWLEDGE_S2` 非空，将其拼接到 Planner prompt 中 `<code-reality-report>` 之前：
@@ -109,62 +113,9 @@ After Step 1 and Step 2 complete, continue directly into the admitted review pat
 
 ## Step 2: Admission Decision
 
-Classify the work on two independent axes before writing the tech spec:
-1. **Review level** — how much design review is required (`Level 0 / Level 1 / Level 2`)
-2. **Deliberate mode** — whether high-risk rollout / pre-mortem / full test-planning rigor must be added
+Classify the work on two independent axes: **review level** (L0/L1/L2) and **deliberate mode** (standard/high-risk).
 
-### Review level selection
-
-- **Level 0 (default)** — routine / localized / familiar changes with clear requirements, bounded module impact, and no material architectural uncertainty → **Planner only**
-- **Level 1** — non-trivial design review is needed (for example interface/API contract changes, several modules touched, meaningful rollout/observability questions, or a real design tradeoff) → **Planner → Architect**
-- **Level 2** — genuinely high-risk or high-uncertainty work (for example auth/security changes, schema/data migration, core architecture shifts, feature affecting >100k DAU, multi-system integration across 3+ external systems, or unresolved design contention) → **Planner → Architect → Critic**
-
-Escalate only when the design risk justifies it. Do not send routine work through the heaviest path by default.
-
-**Boundary examples for common ambiguous cases:**
-- Add 1 optional response field to an existing API, no downstream consumers affected → **L0** (localized, no contract break)
-- Add 1 required request field to an existing API, or change field type/semantics → **L1** (contract change that upstream callers must adapt to)
-- Add a new internal service method with no external interface change → **L0**
-- Add a new external API endpoint used by 2+ other teams → **L1**
-- Change a DB column type on a table with >1M rows → **L2** (schema migration risk)
-- Add a Lion config flag to gate an existing feature → **L0** (no structural change)
-- Introduce a new cross-module async event (Mafka topic) → **L1** (new contract, observability questions)
-
-### Deliberate mode trigger rule
-
-Trigger **deliberate mode** if any of the following apply:
-- Data migration or schema changes
-- Auth / permissions / security mechanisms
-- Core architecture changes
-- Feature affecting >100k DAU
-- Multi-system integration (3+ external systems)
-
-Otherwise use **standard mode**.
-
-Level 2 and deliberate mode often overlap, but they are not identical decisions: Level 2 controls review depth; deliberate mode adds pre-mortem, rollout-readiness, and full test-planning rigor.
-
-### Trigger recording rule
-
-For every deliberate-mode trigger, record the source as one of:
-- **Observed** — directly stated in the requirements spec
-- **Inferred** — not stated directly, but strongly implied by the requirements or existing system
-- **User-confirmed** — confirmed explicitly during review
-
-If trigger evidence is weak, call it out instead of silently guessing.
-
-### ADR trigger rule
-
-ADR is optional. Generate a separate ADR only when the decision itself needs long-term traceability.
-
-Generate an ADR when any of the following apply:
-- 3+ serious alternatives were evaluated and the final rationale is likely to be revisited later
-- The decision changes module boundaries, shared contracts, or cross-team interfaces and the rationale must remain traceable
-- The decision introduces a hard-to-reverse platform, storage, or dependency choice
-- The user explicitly asks to preserve a decision record
-
-If none apply, keep the rationale in the tech spec only and do not force an ADR artifact.
-When ADR is not triggered, keep any decision rationale inside the relevant required sections and do not label it as ADR.
-When ADR is not triggered, do not emit `七、架构ADR`, `ADR`, or the table headers `方案对比 | 选型依据 | 决策理由` anywhere in the output.
+See `references/admission-rules.md` for full classification rules, boundary examples, deliberate mode triggers, and ADR trigger criteria.
 
 ## Artifact Boundary
 
@@ -174,7 +125,7 @@ Keep outward-facing interface/API contract changes in this document, but leave i
 
 Split the reviewer-facing document with clear section ownership:
 - **二、详细设计** — 只写实现方案、业务逻辑、关键流程、状态变化、模块边界
-- **三、接口协议变更** — 只写对外请求/响应或契约变化、兼容性说明；若只是模块内参数、内部 RPC、内部事件、内部数据结构调整，不写在这里
+- **三、接口协议变更** — 只写对外请求/响应或契约变化、兼容性说明；若只是模块内参数、内部 RPC、内部事件、内部数据结构调整，不写在这里；但若是对外暴露的 Thrift/RPC 能力（需要经 Shepherd / PAPI 暴露、供前端或外部系统调用），则属于对外接口契约，必须写在这里
 - **七、架构ADR** — 仅在 ADR 触发时提供紧凑决策表，直观写出方案对比、选型依据、决策理由
 
 Place rollout or risk notes inside the most relevant required section.
@@ -187,14 +138,14 @@ Place rollout or risk notes inside the most relevant required section.
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 node "$RUNWAY_TOOLS" loop-init \
-  --root "$PWD" \
+  --root "$PROJECT_ROOT" \
   --stage 2 \
   --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
   --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --prompt-text "你是 runway-tech-design 的主编排器，Stage 2 方案评审正在进行中。立即从当前位置继续：如果尚未完成准入判断 → 完成 L0/L1/L2 与 deliberate mode 判定；如果 Planner 未完成 → 继续运行；Level 1/2 且 Architect 未运行 → 运行 Architect；Level 2 且 Critic 未运行 → 运行 Critic；达到结束条件 → Step 4 deliberate → Step 5 自检 → Step 6 Hard Gate → Step 7 上传学城 → 停用 triangle state → 返还控制权。不要等待用户确认，直接推进。"
 ```
 
-This state file is resume metadata for Stage 2 only. Unlike the Stage 4-7 pipeline loop, it should not block user exit.
+This state file is resume metadata for Stage 2 only. Unlike the Stage 5-12 pipeline loop, it should not block user exit.
 
 **Loop lifecycle:** Keep the triangle state active through Step 4-7 so resume context survives interruption. This means the metadata may remain present while later stages run; it does **not** mean the Stop hook should protect Stage 2 exit. Deactivate it only **after** explicit Hard Gate approval and successful xuecheng upload.
 
@@ -202,36 +153,7 @@ This state file is resume metadata for Stage 2 only. Unlike the Stage 4-7 pipeli
 
 ### Mandatory output structure
 
-The Planner's draft and every later revision must follow the structure below. Sections 一到六 are required. **七、架构ADR** is optional and should appear only when the ADR trigger fires.
-
-**一、背景与目标**
-- 需求背景、设计目标、范围边界、关键信息来源
-- complex 方案可在本节补一张总览 Mermaid 图，帮助 reviewer 快速建立整体认知
-
-**二、详细设计** — 只写实现方案、业务逻辑、关键流程、状态变化、模块边界
-- **模块总览** — 改动模块列表，含风险级别
-- **每个模块** — 改动目标、设计说明（含必要的数据/状态变化）、模块级图示（按需）、实现边界
-
-**三、接口协议变更** — 只写对外请求/响应或契约变化、兼容性说明
-- 按对外接口 / API 逐项列出，明确写出改的是哪个接口
-- request/input 与 response/output 分开写
-- 每个新增 / 修改 / 删除字段至少写清：字段名、数据类型、字段含义
-- 不要用大段文字笼统概括接口变更
-- 若只是模块内参数、内部 RPC、内部事件、内部数据结构调整，不写在这里
-- 若无变化，明确写“无接口协议变更 — 原因”
-
-**四、基础设施设计**
-- **配置（Lion）/ 存储（DB / Cache / ES）/ 消息（Mafka）/ 定时任务（Crane）/ 外部依赖**
-- 涉及则必填；不涉及写 "不涉及 — 原因"；不得留空
-
-**五、验证策略（Test Strategy）** — 含覆盖风险列，与关键风险互相映射
-
-**六、待决策项（Open Decisions）** — 含负责人和确认时间
-
-**七、架构ADR** — 仅在 ADR 触发时提供紧凑决策表，直观写出方案对比、选型依据、决策理由
-- 未触发 ADR 时不要创建这一节
-
-See `references/tech-spec-template.md` for the full structure.
+Sections 一到六 are required; 七、架构ADR appears only when ADR trigger fires. See `references/tech-spec-template.md` for the full structure and field-level guidance.
 
 ### Execution: Agent-based admission path
 
@@ -242,251 +164,25 @@ When using subagents, await each required result and continue in the same turn. 
 
 #### Pass 1 — Planner (draft)
 
-```
-Agent(
-  subagent_type="general-purpose",
-  model="opus",
-  prompt="""You are Planner. Your mission: produce an initial tech spec draft.
+Read the full Planner prompt from `references/review-agent-prompts.md` → **Pass 1 — Planner** section. Substitute `{REQUIREMENTS_SPEC}` and `{CODE_REALITY_REPORT}` before dispatching.
 
-Role constraints:
-- Draft only. Do NOT review or critique.
-- Sections 一到六 must be present and non-empty. Section 七（架构ADR） is optional and appears only when the ADR trigger fires.
-- No placeholders (TBD, 待定, TODO). Use a concrete answer or an explicit "Not applicable — reason."
-- Exclude runway-task-planning detail: file paths, concrete class names, field numbers, test code, Wave splitting, and TDD task steps.
-- Keep outward-facing interface/API contract changes in the tech spec; keep internal parameter details out of this section.
-- Keep section ownership strict: 详细设计写实现方案与模块边界；接口协议变更只写对外请求/响应或契约变化、兼容性说明。 Internal RPCs, internal events, and module-local parameter changes do not belong there. Do not duplicate content.
-- If ADR is not triggered, keep decision rationale in the relevant required sections only. Do not label any content as `ADR`, do not emit `七、架构ADR`, and do not emit the table headers `方案对比 | 选型依据 | 决策理由`.
-- If `七、架构ADR` appears, use a compact table with 方案对比 / 选型依据 / 决策理由.
-- Keep rollout or risk notes inside the most relevant required section.
-
-Requirements spec:
-<requirements>
-{REQUIREMENTS_SPEC}
-</requirements>
-
-Code reality report:
-<code-reality-report>
-{CODE_REALITY_REPORT}
-</code-reality-report>
-
-Mandatory output structure:
-
-一、背景与目标
-- 需求背景、设计目标、范围边界、关键信息来源
-- complex 方案可补一张总览 Mermaid 图，帮助 reviewer 快速建立整体认知
-
-二、详细设计
-- 模块总览：表格，含模块名 / 改动概述 / 风险级别 / 来源
-- 每个模块展开（M1 / M2 ...）：改动目标、设计说明（含必要的数据/状态变化）、模块级图示（按需）、实现边界
-
-三、接口协议变更
-- 按对外接口 / API 逐项列出，明确写出改的是哪个接口
-- request/input 与 response/output 分开写
-- 每个新增 / 修改 / 删除字段至少写清：字段名、数据类型、字段含义
-- 不要用大段文字笼统概括接口变更
-- 若只是模块内参数、内部 RPC、内部事件、内部数据结构调整，不写在这里
-- 若无变化，明确写“无接口协议变更 — 原因”
-
-四、基础设施设计
-- 配置（Lion）/ 存储（DB / Cache / ES）/ 消息（Mafka）/ 定时任务（Crane）/ 外部依赖
-- 涉及则必填；不涉及写 "不涉及 — 原因"；不得留空
-
-五、验证策略（Test Strategy）
-- 表格含覆盖风险列，与关键风险互相映射
-
-六、待决策项（Open Decisions）
-- 含负责人和确认时间
-
-七、架构ADR（仅在 ADR 触发时出现）
-- 紧凑表格，至少含方案对比 / 选型依据 / 决策理由
-
-Output the complete tech spec draft. Nothing else."""
-)
-```
-
-**After Pass 1 completes, output a progress summary before proceeding to the next required pass:**
-
-```
-## 📝 Planner 草稿完成（第 N 轮）
-
-- 主线设计：{一句话概括当前实现方案}
-- 主要影响模块：{模块列表}
-- 接口协议变更：{有 / 无，若有列出关键接口}
-- ADR：{未触发 / 已触发}
-- 当前准入级别：{Level 0 / Level 1 / Level 2}
-- Level 0 → 进入自检；Level 1 / Level 2 → 开始 Architect 技术审查
-- 这是进度同步，不是暂停点。输出后不得停下等待用户确认；必须在同一轮继续进入下一个必需步骤。
-```
-
-中途展示 Planner / Architect / Critic 结果时，仅用于透明同步，不是确认点，也不是新的 Hard Gate。
-展示后必须在同一轮继续执行下一步；除非已经到达 Step 6 Hard Gate 或遇到真正 blocker，否则不得停下来等待用户回复。
-
+After Pass 1 completes, output the progress summary format defined in `references/review-convergence.md`. Continue in the same turn — do not stop for user confirmation.
 
 #### Pass 2 — Architect (technical review)
 
 **Await Pass 1 result before starting this pass. Only required for Level 1 and Level 2.**
 
-```
-Agent(
-  subagent_type="general-purpose",
-  model="sonnet",
-  prompt="""You are Architect. Your mission: technical review of this tech spec draft.
-
-Role constraints:
-- READ-ONLY. Do not rewrite the spec.
-- Cite a specific section or quote for every finding.
-- Provide the strongest steelman antithesis against the favored direction.
-- Surface at least one real tradeoff tension.
-- Tag every finding: [MUST], [SUGGEST], or [OPTIONAL].
-
-Tech spec to review:
-<tech-spec>
-{PLANNER_OUTPUT}
-</tech-spec>
-
-Review for:
-- Module boundary clarity and single responsibility
-- Scalability and extensibility under realistic load
-- Technical debt introduced and its long-term cost
-- Conformance with existing architecture patterns
-- Whether `二、详细设计` and `三、接口协议变更` have clear ownership without duplicated content
-- Whether interface / compatibility changes are concrete enough for reviewers to judge upstream and downstream impact
-- Whether infrastructure notes and verification strategy are concrete enough to execute
-- If `七、架构ADR` exists, whether the comparison and rationale are fair rather than strawmen
-
-Output format:
-## Architect Review
-
-**Antithesis (steelman):** [Strongest counterargument against the favored approach]
-**Tradeoff tension:** [Meaningful tension the spec must address]
-
-**[MUST] Findings:**
-1. [Section/quote] — [issue] — [required fix]
-
-**[SUGGEST] Findings:**
-1. [Section/quote] — [issue] — [suggested fix]
-
-**[OPTIONAL] Findings:**
-1. [Section/quote] — [observation]"""
-)
-```
+Read the full Architect prompt from `references/review-agent-prompts.md` → **Pass 2 — Architect** section. Substitute `{PLANNER_OUTPUT}` before dispatching.
 
 #### Pass 3 — Critic (gap and failure mode analysis)
 
 **Await Pass 2 result before starting this pass. Only required for Level 2.**
 
-```
-Agent(
-  subagent_type="general-purpose",
-  model="sonnet",
-  prompt="""You are Critic — the final quality gate, not a helpful assistant providing feedback.
-
-Role constraints:
-- READ-ONLY. Do not rewrite the spec.
-- A false approval costs 10-100x more than a false rejection.
-- Be direct. No politeness padding or praise.
-- Evaluate what ISN'T present as much as what IS.
-
-Tech spec:
-<tech-spec>
-{PLANNER_OUTPUT}
-</tech-spec>
-
-Architect findings:
-<architect-review>
-{ARCHITECT_OUTPUT}
-</architect-review>
-
-Investigation protocol:
-1. Predict 3-5 likely failure modes before detailed reading.
-2. Verify technical claims against referenced modules/interfaces/patterns.
-3. Run a pre-mortem: "Assume this design was implemented exactly as written and failed post-launch. What are the top 3 most likely causes?"
-4. Ask: what's missing, which edge case is uncovered, which assumption may be wrong?
-5. Check whether Architect [MUST] items were actually addressed; escalate if not.
-6. Readability check — can a reviewer read this in 10 minutes and decide?
-
-Verdict options: APPROVE / ITERATE (revisions needed) / REJECT (fundamental issues)
-
-Output format:
-**VERDICT: [APPROVE / ITERATE / REJECT]**
-
-**Pre-commitment predictions:** [What you expected vs what you found]
-
-**Critical findings** (blocks approval):
-1. [Quote/section] — [issue] — [required fix]
-
-**Major findings** (significant rework needed):
-1. [Quote/section] — [issue] — [fix]
-
-**What's Missing:**
-- [Gap 1]
-- [Gap 2]
-
-**Pre-mortem scenarios:**
-1. [Failure scenario] — [does the spec address it? yes/no]
-
-**Verdict justification:** [Why this verdict. What must change for an upgrade.]"""
-)
-```
+Read the full Critic prompt from `references/review-agent-prompts.md` → **Pass 3 — Critic** section. Substitute `{PLANNER_OUTPUT}` and `{ARCHITECT_OUTPUT}` before dispatching.
 
 #### Admission-specific convergence rules
 
-**After each Architect pass, display findings to the user immediately, then continue in the same turn unless Step 6 Hard Gate or a true blocker has been reached:**
-
-```
-## 🔍 架构师审查结果（第 N 轮）
-
-{ARCHITECT_OUTPUT — 完整展示，不要截断}
-```
-
-**After each Critic pass, display verdict and findings to the user immediately, then continue in the same turn unless Step 6 Hard Gate or a true blocker has been reached:**
-
-```
-## ⚖️ 挑战者审查结果（第 N 轮）
-
-{CRITIC_OUTPUT — 完整展示，不要截断}
-```
-
-**Level 0:**
-- Planner completes → proceed directly to Step 5 self-review.
-
-**Level 1:**
-- Planner → Architect.
-- If Architect has no blocking `[MUST]` items, proceed to Step 5 self-review.
-- If Architect returns blocking `[MUST]` items, run one targeted Planner revision addressing all `[MUST]` items, then run Architect once more and stop there regardless of remaining `[MUST]` items. After the second Architect pass, do not run another revision cycle. If the second Architect pass still has unresolved `[MUST]` items, do not loop again — list them in the Step 6 Hard Gate presentation with the label "⚠️ Architect 仍有未解决 [MUST] 项，请 review 后决定是否继续", then let the user decide before proceeding.
-
-**Level 2:**
-- Planner → Architect → Critic.
-- If Critic verdict is **APPROVE**, proceed to Step 4.
-- If Critic verdict is **ITERATE** or **REJECT**, collect all Architect `[MUST]` items plus Critic Critical/Major findings, run one targeted Planner revision, then rerun Architect → Critic once more.
-- Level 2 is capped at **at most one revision cycle** and **2 total cycles**. Do not keep looping after the second cycle; present the best version plus unresolved issues to the user.
-
-If a targeted Planner revision is required, treat it as an internal repair step, then continue immediately to the required next pass in the same turn.
-
-Use this revision prompt whenever a targeted Planner revision is required:
-
-```
-Agent(
-  subagent_type="general-purpose",
-  model="opus",
-  prompt="""You are Planner. Revise the tech spec based on review feedback.
-
-Previous spec:
-<tech-spec>
-{PREVIOUS_PLANNER_OUTPUT}
-</tech-spec>
-
-Required revisions (address ALL of these):
-<revisions>
-{ARCHITECT_MUST_ITEMS}
-{CRITIC_CRITICAL_AND_MAJOR_FINDINGS}
-</revisions>
-
-Output the complete revised tech spec. All mandatory sections must remain present. No placeholders."""
-)
-```
-
-If unresolved issues remain after the allowed review cycles, include them in the Step 6 Hard Gate presentation instead of creating a separate pre-Hard-Gate stop.
+See `references/review-convergence.md` for full convergence rules per level (L0/L1/L2), revision caps, progress display formats, and the targeted Planner revision prompt.
 
 ## Step 4: Deliberate Mode Additions (high-risk only)
 
@@ -498,20 +194,15 @@ If unresolved issues remain after the allowed review cycles, include them in the
 
 See `references/deliberate-checklist.md` for full checklist.
 
+## Step 4.5: 接口分类与新增接口 PATH 生成（Step 2b 前置）
+
+对「三、接口协议变更」中的每个接口标注变更类型（新增/修改/删除），为新增接口生成语义 PATH，存量修改接口 URL 路径留空由 Step 2b 匹配。
+
+See `references/interface-path-completion.md` for full classification rules, PATH generation format, AC table backfill, and completion criteria.
+
 ## Step 5: Self-Review
 
-1. 一到六必填章节均已填写；七、架构ADR 仅在 ADR 触发时出现
-2. `二、详细设计` 只写实现方案、业务逻辑、关键流程、状态变化、模块边界
-3. `三、接口协议变更` 只写对外请求/响应或契约变化、兼容性说明；与详细设计无重复叙述；若只是模块内参数、内部 RPC、内部事件、内部数据结构调整，不写在这里；若存在接口协议变更，每个新增/修改/删除字段已写清字段名、数据类型、字段含义；request/input 与 response/output 已分开列出
-4. complex 方案：在 `一、背景与目标` 已提供足够的整体视图，必要时补至少一张 Mermaid 图
-5. 每个模块：满足补图条件时已在模块内补图（异步链路 / 复杂状态流转 / 多存储协同）
-6. 基础设施各章节：涉及则填写，不涉及明确写原因，无留空
-7. 验证策略包含覆盖风险列，并覆盖关键实现风险或兼容性风险
-8. Readability check — can a reviewer read this in 10 minutes and decide? 无代码、字段编号、文件路径、Wave / TDD 等执行细节。
-9. 每条接口定义无歧义，可直接用于任务拆解
-10. 若存在 `七、架构ADR`，其表格已直接写清方案对比、选型依据、决策理由
-11. 无 TBD、待定、后续确认等模糊占位符
-12. 触发来源已记录（deliberate 模式下必填）
+Run through all 15 items in `references/self-review-checklist.md` before presenting to the user.
 
 ## Step 6: User Review (HARD GATE)
 
@@ -543,84 +234,9 @@ If changes are requested: revise the spec, re-run the required admission path fr
 
 ## Step 6.5: Knowledge Capture — Stage 2 Hard Gate
 
-Run this step after the user approves, before uploading to xuecheng. Its purpose is to surface what the user changed so that the same corrections don't need to happen again next time.
+Run after user approves, before uploading. Skip entirely if the user approved with no modifications.
 
-**If the user approved with no modifications, skip this step entirely.**
-
-### Detect and extract changes
-
-Compare the saved draft (`.runway/tmp/spec-draft-stage2.md`) against the final approved spec. Focus on these sections where corrections carry the most reuse value:
-
-- `二、详细设计` — did the user change the implementation approach or module boundaries?
-- `三、接口协议变更` — did the user modify interface fields, directions, or compatibility rules?
-- `四、基础设施设计` — did the user reject a storage, config, or messaging choice?
-- Any place the user said "不行", "应该用 X", "我们规定", or "上次就是这样出问题的"
-
-For each substantive difference, extract what the AI wrote, what the user changed it to, and why.
-
-Ignore formatting changes, wording polish, and reordering. Only capture changes that carry a business rule or reveal a constraint the AI missed.
-
-### Classify each finding
-
-- User added a constraint or rule the AI didn't know about → `implicit_constraint`
-  - Will be injected into future Stage 2 Planners so designs respect this constraint from the start
-- User corrected an AI assumption or judgment → `ai_correction`
-  - Will be injected into Stage 1 and Stage 2 so future analysis catches this class of mistake earlier
-
-### Present findings to the user for confirmation
-
-Show each finding as a numbered item before writing anything:
-
-```
-我注意到你做了以下修改，准备沉淀到项目知识库：
-
-1. [隐性约束] 灰度开关必须走 Lion 配置，不能用环境变量
-   原因：环境变量在容器重启后不可动态调整，Lion 支持实时生效
-
-2. [AI纠正] 不需要加降级开关，这个功能没有降级场景
-   原因：AI 默认加了 Lion 开关，但用户明确说此功能无需降级
-
-请确认：
-  a) 全部保留
-  b) 告诉我哪条需要修改或删除
-  c) 跳过，不沉淀
-```
-
-Wait for the user's response before writing anything. If the user selects (c) or doesn't respond, skip the write step entirely.
-
-### Write confirmed entries
-
-After the user confirms (a) or provides edits (b), write each approved entry:
-
-```bash
-RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
-RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" knowledge-append \
-  --root "$PWD" \
-  --ones-id "{ones_work_item_id}" \
-  --entries '[
-    {
-      "type": "constraint",
-      "captured_at_stage": 2,
-      "trigger": "hard_gate_diff",
-      "inject_into_stages": [2, 3, 5],
-      "inject_as": "constraint",
-      "scope": "project",
-      "summary": "{一句话陈述性知识，描述业务约束或事实}",
-      "confidence": 9
-    }
-  ]' || true
-```
-
-Field selection guide:
-- `type`: `constraint` for business/architectural rules the AI missed; `correction` for wrong AI judgments
-- `inject_into_stages`: `[2, 3, 5]` for constraints; `[1, 2, 3, 5]` for corrections
-- `inject_as`: `constraint` for constraints; `warning` for corrections
-- `scope`: `project` if this applies to future features; `feature` if one-time only
-- `summary`: 写成陈述性事实，例如"灰度开关必须走 Lion 配置，不能用环境变量，因为环境变量在容器重启后不可动态调整"
-- `confidence`: 9–10 if the user explicitly confirmed; 7–8 if inferred from context
-
-Write one entry per finding. Failure to write does not block the upload step (`|| true`).
+See `references/knowledge-capture.md` for diff detection logic, classification rules, user confirmation flow, and the knowledge-append command.
 
 ## Step 7: Upload to Xuecheng (after user confirms)
 
@@ -645,7 +261,7 @@ Then deactivate the triangle-loop state:
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-node "$RUNWAY_TOOLS" state-update --root "$PWD" --name triangle-loop.local.md --active false
+node "$RUNWAY_TOOLS" state-update --root "$PROJECT_ROOT" --name triangle-loop.local.md --active false
 ```
 
 ## Terminal State
@@ -656,3 +272,8 @@ Tech spec uploaded, user approved. Return control to the calling orchestrator. *
 
 - **`references/tech-spec-template.md`** — Full tech spec structure with field guidance
 - **`references/deliberate-checklist.md`** — Pre-mortem and full test planning checklist
+- **`references/self-review-checklist.md`** — 15-item self-review checklist for Step 5
+- **`references/admission-rules.md`** — L0/L1/L2 classification rules, deliberate mode triggers, ADR criteria
+- **`references/review-convergence.md`** — Convergence rules per level, revision caps, progress display
+- **`references/interface-path-completion.md`** — PATH generation, AC backfill, completion criteria
+- **`references/knowledge-capture.md`** — Hard Gate diff detection, classification, knowledge-append command

@@ -2,7 +2,7 @@
 
 ## 触发时机
 
-Stage 7 通过、Development Complete 摘要已打印、ONES 状态已更新后执行。
+Stage 12 Retrospective 完成、Development Complete 摘要已打印、ONES 状态已更新后执行。
 
 ## 清理命令
 
@@ -19,7 +19,7 @@ rm -f "{plan_path}"
 清理完成后输出 Stop hook 检测信号：
 
 ```
-<promise>RUNWAY STAGES 5-7 COMPLETE</promise>
+<promise>RUNWAY STAGES 3-12 COMPLETE</promise>
 ```
 
 **仅在以下条件全部满足后才输出此行：**

@@ -70,41 +70,27 @@ Task tool (general-purpose):
 
     {directory}
 
-    ## Expected Red-Phase Signal
-
-    The first test run should fail because:
-    {expected failing output and why it proves the right behavior is missing}
-
     ## Your Job
 
-    1. Write the failing test FIRST (TDD iron rule — no exceptions)
-    2. Run the test and capture the actual failing output
-    3. Confirm the failure is for the right reason, not a syntax/import/setup error
-    4. Implement exactly what the task specifies — minimum code to pass
-    5. Run the relevant test again and capture the passing output
-    6. Self-review
-    7. Commit:
+    1. Implement exactly what the task specifies
+    2. Self-review
+    3. Commit:
        ```bash
        git add {files}
        git commit -m "{type}: {description}"
        ```
-    8. Report back using the required status format
+    4. Report back using the required status format
 
     ## Status Rules
 
     Use exactly one of these statuses:
 
-    - **DONE** — task is complete; include changed files, failing-test evidence, passing-test evidence, and commit SHA
+    - **DONE** — task is complete; include changed files and commit SHA
     - **DONE_WITH_CONCERNS** — task is complete, but you have explicit concerns; include DONE fields plus the concerns and impacted files
     - **NEEDS_CONTEXT** — required context was missing; include exact missing context, why it is required, and what you already tried
     - **BLOCKED** — you cannot proceed; include blocker, attempted probes, dependency impact, and recommended next step
 
     Do not invent a new status.
-
-    ## TDD Iron Rule
-
-    No production code without a prior failing test.
-    If you find yourself writing implementation before a test exists, stop.
 
     ## Escalation Rules
 
@@ -127,11 +113,7 @@ Task tool (general-purpose):
 
     - **Status:** DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
     - **What you implemented:** {1-5 bullets}
-    - **Failing-test evidence:** {exact command + actual output snippet}
-    - **Passing-test evidence:** {exact command + actual output snippet}
     - **Files changed:** {paths}
     - **Commit SHA:** {sha or `none` if not committed}
     - **Concerns / blocker / missing context:** {only what matches the chosen status}
-
-    Never say "tests failed as expected" without showing the output that proves it.
 ```

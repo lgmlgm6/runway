@@ -55,7 +55,8 @@ This prevents asking questions that the code already answers (e.g., "which inter
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-KNOWLEDGE_S1=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 1 --format prompt 2>/dev/null || echo "")
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+KNOWLEDGE_S1=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PROJECT_ROOT" --inject-into-stage 1 --format prompt 2>/dev/null || echo "")
 ```
 
 如果 `KNOWLEDGE_S1` 非空，在后续 Ambiguity Scoring 和 Socratic 提问时将其作为额外上下文：这些历史纠正记录揭示了哪类 PRD 容易遗漏哪类约束，在打分和提问时优先关注这些维度。
@@ -157,6 +158,7 @@ Run self-review checklist before presenting:
 3. No ambiguous statements (each requirement has exactly one interpretation)
 4. Scope is focused
 5. Every assumption is clearly separated from confirmed facts
+6. **AC 清单表格格式**：分隔行必须存在且每列至少 3 个 `-`，格式为 `| ------ | ------ |`（空格+连字符+空格），不能省略或简写。学城渲染依赖此格式，格式错误会导致渲染为列表而非表格。
 
 See `references/spec-template.md` for full template.
 
@@ -230,7 +232,7 @@ After the user confirms (a) or provides edits (b), write each approved entry:
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 node "$RUNWAY_TOOLS" knowledge-append \
-  --root "$PWD" \
+  --root "$PROJECT_ROOT" \
   --ones-id "{ones_work_item_id}" \
   --entries '[
     {

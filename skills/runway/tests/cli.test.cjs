@@ -34,7 +34,12 @@ test('artifacts-invalidate command prints invalidation payload', () => {
     'branch_execution',
     'execution_report',
     'cr_report',
+    'shepherd_config',
     'qa_report',
+    'deploy_stack',
+    'test_report',
+    'bug_analysis',
+    'project_knowledge',
   ]);
   assert.equal(payload.resume_from_stage, 4);
 });
@@ -263,6 +268,8 @@ test('status command aggregates checkpoint, reports, and active state', () => {
         plan_path: '.runway/plans/demo.md',
         current_stage: 6,
         updated_at: '2026-04-15T12:05:00Z',
+        fix_round: 0,
+        fix_loop_status: 'idle',
         docs: {
           cr_report: '.runway/docs/123/cr-report.md',
         },
@@ -282,7 +289,11 @@ test('status command aggregates checkpoint, reports, and active state', () => {
         prompt: 'pipeline loop',
       },
     },
-    artifacts: {},
+    artifacts: {
+      task_plan: {
+        path: '.runway/plans/demo.md',
+      },
+    },
     reports: {
       execution_report: {
         path: '.runway/docs/123/execution-report.md',
@@ -318,6 +329,14 @@ test('checkpoint-write and report-write commands update the canonical checkpoint
     '--requirements-spec-content-id', 'spec-1',
     '--tech-spec-content-id', 'tech-1',
     '--plan-path', '.runway/plans/demo.md',
+    '--pipeline-mode', 'fullstack',
+    '--fullstack-handoff-status', 'pending',
+    '--pipeline-options', JSON.stringify({ skip_papi: false, skip_shepherd: true }),
+    '--papi-sync-status', 'success',
+    '--papi-synced-apis', JSON.stringify(['/api/demo/create']),
+    '--tclist-content-id', 'case-1',
+    '--shepherd-config-status', 'skipped',
+    '--test-failed-ids', JSON.stringify(['TC-1-1']),
     '--current-stage', '7',
     '--updated-at', '2026-04-15T12:00:00Z',
   ], {
@@ -330,6 +349,13 @@ test('checkpoint-write and report-write commands update the canonical checkpoint
   assert.equal(checkpoint.current_stage, 7);
   assert.equal(checkpoint.tech_spec_content_id, 'tech-1');
   assert.equal(checkpoint.branch_name, null);
+  assert.equal(checkpoint.pipeline_mode, 'fullstack');
+  assert.equal(checkpoint.fullstack_handoff_status, 'pending');
+  assert.deepEqual(checkpoint.pipeline_options, { skip_papi: false, skip_shepherd: true });
+  assert.deepEqual(checkpoint.papi_synced_apis, ['/api/demo/create']);
+  assert.deepEqual(checkpoint.test_failed_ids, ['TC-1-1']);
+  assert.equal(checkpoint.shepherd_config_status, 'skipped');
+  assert.equal(checkpoint.tclist_content_id, 'case-1');
 
   const reportResult = spawnSync(process.execPath, [
     cliPath,
@@ -352,6 +378,7 @@ test('checkpoint-write and report-write commands update the canonical checkpoint
     '--root', rootDir,
     '--ones-id', '123',
     '--head-sha', 'abc123',
+    '--fullstack-handoff-status', 'dispatched',
     '--current-stage', '6',
   ], {
     encoding: 'utf8',
@@ -362,7 +389,112 @@ test('checkpoint-write and report-write commands update the canonical checkpoint
   assert.equal(updatedCheckpoint.docs.qa_report, '.runway/docs/123/qa-report.md');
   assert.equal(updatedCheckpoint.tech_spec_content_id, 'tech-1');
   assert.equal(updatedCheckpoint.head_sha, 'abc123');
+  assert.equal(updatedCheckpoint.pipeline_mode, 'fullstack');
+  assert.equal(updatedCheckpoint.fullstack_handoff_status, 'dispatched');
   assert.equal(updatedCheckpoint.current_stage, 6);
+});
+
+test('fullstack handoff checkpoint states survive status resolution', () => {
+  const rootDir = makeTempRoot();
+
+  const writeResult = spawnSync(process.execPath, [
+    cliPath,
+    'checkpoint-write',
+    '--root', rootDir,
+    '--ones-id', '456',
+    '--requirements-spec-content-id', 'spec-456',
+    '--tech-spec-content-id', 'tech-456',
+    '--tclist-content-id', 'tclist-456',
+    '--pipeline-mode', 'fullstack',
+    '--fullstack-handoff-status', 'pending',
+    '--current-stage', '3',
+    '--updated-at', '2026-04-16T08:00:00Z',
+  ], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(writeResult.status, 0);
+
+  const statusPending = spawnSync(process.execPath, [
+    cliPath,
+    'status',
+    '--root', rootDir,
+    '--ones-id', '456',
+  ], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(statusPending.status, 0);
+  const pendingPayload = JSON.parse(statusPending.stdout);
+  assert.equal(pendingPayload.checkpoint.data.pipeline_mode, 'fullstack');
+  assert.equal(pendingPayload.checkpoint.data.fullstack_handoff_status, 'pending');
+  assert.equal(pendingPayload.checkpoint.data.current_stage, 3);
+  assert.equal(pendingPayload.artifacts.requirements_spec.content_id, 'spec-456');
+  assert.equal(pendingPayload.artifacts.tech_spec.content_id, 'tech-456');
+  assert.equal(pendingPayload.artifacts.test_cases.content_id, 'tclist-456');
+
+  const dispatchResult = spawnSync(process.execPath, [
+    cliPath,
+    'checkpoint-write',
+    '--root', rootDir,
+    '--ones-id', '456',
+    '--fullstack-handoff-status', 'dispatched',
+  ], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(dispatchResult.status, 0);
+
+  const statusDispatched = spawnSync(process.execPath, [
+    cliPath,
+    'status',
+    '--root', rootDir,
+    '--ones-id', '456',
+  ], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(statusDispatched.status, 0);
+  const dispatchedPayload = JSON.parse(statusDispatched.stdout);
+  assert.equal(dispatchedPayload.checkpoint.data.pipeline_mode, 'fullstack');
+  assert.equal(dispatchedPayload.checkpoint.data.fullstack_handoff_status, 'dispatched');
+  assert.equal(dispatchedPayload.checkpoint.data.current_stage, 3);
+});
+
+test('standard mode checkpoint remains distinct from fullstack handoff states', () => {
+  const rootDir = makeTempRoot();
+
+  const writeResult = spawnSync(process.execPath, [
+    cliPath,
+    'checkpoint-write',
+    '--root', rootDir,
+    '--ones-id', '789',
+    '--requirements-spec-content-id', 'spec-789',
+    '--tech-spec-content-id', 'tech-789',
+    '--current-stage', '3',
+    '--updated-at', '2026-04-16T09:00:00Z',
+  ], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(writeResult.status, 0);
+
+  const statusResult = spawnSync(process.execPath, [
+    cliPath,
+    'status',
+    '--root', rootDir,
+    '--ones-id', '789',
+  ], {
+    encoding: 'utf8',
+  });
+
+  assert.equal(statusResult.status, 0);
+  const payload = JSON.parse(statusResult.stdout);
+  assert.equal(payload.checkpoint.data.current_stage, 3);
+  assert.equal(payload.checkpoint.data.pipeline_mode, undefined);
+  assert.equal(payload.checkpoint.data.fullstack_handoff_status, undefined);
+  assert.equal(payload.artifacts.requirements_spec.content_id, 'spec-789');
+  assert.equal(payload.artifacts.tech_spec.content_id, 'tech-789');
 });
 
 test('knowledge-append writes entries to knowledge.json and knowledge-read filters by stage', () => {

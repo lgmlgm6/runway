@@ -15,14 +15,7 @@ Each subagent starts with zero knowledge of the session. The task package must c
 ### 2. Complete steps
 Copy the exact task text from the plan. Do **not** paraphrase or summarize it.
 
-### 3. TDD package
-Always include:
-- the TDD iron rule;
-- the exact red-phase test command;
-- the expected failure signature;
-- the exact green-phase verification command.
-
-### 4. Codebase context
+### 3. Codebase context
 Include only what the task needs:
 - contents or excerpts of interfaces, types, and base classes it depends on;
 - existing tests in the same area for style reference;

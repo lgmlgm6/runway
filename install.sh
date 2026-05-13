@@ -32,12 +32,19 @@ HOOKS_SRC="$SCRIPT_DIR/hooks"
 
 SKILL_NAMES=(
   "runway"
+  "runway-fullstack"
   "runway-prd-analysis"
   "runway-tech-design"
   "runway-task-planning"
   "runway-parallel-dev"
   "runway-code-review-fix"
   "runway-qa-verify"
+  "runway-agentteam"
+  "runway-autotest"
+  "runway-bug-analysis"
+  "runway-papi"
+  "runway-shepherd"
+  "runway-tclist"
 )
 
 # ── colors ───────────────────────────────────────────────────────────────────

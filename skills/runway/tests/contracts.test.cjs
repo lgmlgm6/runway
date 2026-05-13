@@ -6,9 +6,9 @@ const {
   validateStageTransition,
 } = require('../lib/contracts.cjs');
 
-test('stage 3 auto-advances with plan output', () => {
+test('stage 3 exposes the compound planning contract', () => {
   const contract = getStageContract(3);
-  assert.equal(contract.skill, 'runway-task-planning');
+  assert.equal(contract.skill, 'runway-task-planning (+ runway-papi / runway-tclist)');
   assert.equal(contract.hardGate, false);
   assert.deepEqual(contract.requiredOutputs, ['plan_path']);
 });
@@ -27,9 +27,13 @@ test('validateStageTransition fails when required outputs are missing', () => {
 
 test('validateStageTransition succeeds with required handoff payload', () => {
   const result = validateStageTransition({
-    fromStage: 3,
-    toStage: 4,
-    payload: { plan_path: '.runway/plans/2026-04-15-feature.md' },
+    fromStage: 10,
+    toStage: 11,
+    payload: {
+      test_report_content_id: 'km-123',
+      test_failed_count: 2,
+      test_failed_ids: ['TC-1-1'],
+    },
   });
 
   assert.equal(result.ok, true);

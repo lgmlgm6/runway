@@ -27,7 +27,7 @@ fi
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 PROJECT_MEMORY_RESULT=$(node "$RUNWAY_TOOLS" project-memory-init \
-  --root "$PWD" \
+  --root "$PROJECT_ROOT" \
   --mis "{mis}" \
   --app-id "{app_id}" \
   --ones-space-id "{ones_space_id}")

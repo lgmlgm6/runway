@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# runway: Stop hook — keeps the Stage 4-7 pipeline loop running
+# runway: Stop hook — keeps the Stage 5-12 pipeline loop running
 # Uses the pipeline state file frontmatter schema:
 #   .claude/runway-state/pipeline.local.md
 # Contract:

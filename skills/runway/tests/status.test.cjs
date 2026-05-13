@@ -12,7 +12,7 @@ function makeTempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'runway-status-'));
 }
 
-test('resolveStatus aggregates checkpoint, reports, and active state', () => {
+test('resolveStatus aggregates checkpoint, reports, active state, and expanded artifacts', () => {
   const rootDir = makeTempRoot();
   const statePath = initStateFile({
     rootDir,
@@ -28,9 +28,19 @@ test('resolveStatus aggregates checkpoint, reports, and active state', () => {
 
   writeCheckpoint(rootDir, {
     ones_work_item_id: '123',
-    current_stage: 6,
+    current_stage: 10,
     updated_at: '2026-04-15T12:05:00Z',
     plan_path: '.runway/plans/demo.md',
+    requirements_spec_content_id: 'spec-123',
+    papi_sync_status: 'success',
+    papi_synced_apis: ['/api/demo/create'],
+    tclist_content_id: 'case-123',
+    shepherd_config_status: 'skipped',
+    test_report_content_id: 'local:.runway/docs/123/test-report.md',
+    bug_analysis_content_id: 'bug-123',
+    cargo_stack_uuid: 'stack-123',
+    cargo_base_url: 'https://demo.test.sankuai.com',
+    cargo_swimlane: 'demo-lane',
   });
   writeReport({
     rootDir,
@@ -50,9 +60,19 @@ test('resolveStatus aggregates checkpoint, reports, and active state', () => {
       exists: true,
       data: {
         ones_work_item_id: '123',
-        current_stage: 6,
+        current_stage: 10,
         updated_at: '2026-04-15T12:05:00Z',
         plan_path: '.runway/plans/demo.md',
+        requirements_spec_content_id: 'spec-123',
+        papi_sync_status: 'success',
+        papi_synced_apis: ['/api/demo/create'],
+        tclist_content_id: 'case-123',
+        shepherd_config_status: 'skipped',
+        test_report_content_id: 'local:.runway/docs/123/test-report.md',
+        bug_analysis_content_id: 'bug-123',
+        cargo_stack_uuid: 'stack-123',
+        cargo_base_url: 'https://demo.test.sankuai.com',
+        cargo_swimlane: 'demo-lane',
         docs: {
           cr_report: '.runway/docs/123/cr-report.md',
         },
@@ -72,7 +92,39 @@ test('resolveStatus aggregates checkpoint, reports, and active state', () => {
         prompt: 'pipeline loop',
       },
     },
-    artifacts: {},
+    artifacts: {
+      requirements_spec: {
+        content_id: 'spec-123',
+        url: 'https://km.sankuai.com/collabpage/spec-123',
+      },
+      task_plan: {
+        path: '.runway/plans/demo.md',
+      },
+      papi_sync: {
+        status: 'success',
+        synced_apis: ['/api/demo/create'],
+      },
+      test_cases: {
+        content_id: 'case-123',
+        url: 'https://km.sankuai.com/collabpage/case-123',
+      },
+      shepherd_config: {
+        status: 'skipped',
+      },
+      test_report: {
+        content_id: 'local:.runway/docs/123/test-report.md',
+        path: '.runway/docs/123/test-report.md',
+      },
+      bug_analysis: {
+        content_id: 'bug-123',
+        url: 'https://km.sankuai.com/collabpage/bug-123',
+      },
+      deploy_stack: {
+        stack_uuid: 'stack-123',
+        base_url: 'https://demo.test.sankuai.com',
+        swimlane: 'demo-lane',
+      },
+    },
     reports: {
       execution_report: {
         path: '.runway/docs/123/execution-report.md',

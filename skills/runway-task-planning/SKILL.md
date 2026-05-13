@@ -1,6 +1,6 @@
 ---
 name: runway-task-planning
-description: Converts a tech spec into a zero-placeholder implementation plan with wave-based parallel grouping, AC-driven TC lists, and TDD-ready task steps. Invoke this skill whenever the user wants to "break down tasks", "create implementation plan", "拆任务", "写执行计划", or after runway-tech-design is approved. Also trigger when the user asks "how do we implement this?" after a tech spec exists. Do NOT let the user skip straight to coding without a plan — this step generates the TC list that drives test coverage downstream.
+description: Converts a tech spec into a zero-placeholder implementation plan with wave-based parallel grouping. Invoke this skill whenever the user wants to "break down tasks", "create implementation plan", "拆任务", "写执行计划", or after runway-tech-design is approved. Also trigger when the user asks "how do we implement this?" after a tech spec exists. Do NOT let the user skip straight to coding without a plan.
 version: 0.1.0
 ---
 
@@ -17,7 +17,6 @@ Activate after runway-tech-design is approved. Input: tech spec (markdown or xue
 ## Core Rules
 
 - **Zero placeholders:** Every step contains complete code, exact commands, expected output. No "TBD", "implement here", "TODO".
-- **TDD order:** For every feature task — write failing test first, verify failure, then implement.
 - **2–5 min granularity:** Each step is one atomic operation.
 - **Wave tagging:** Mark which tasks can run in parallel (same wave = no file overlap, no logical dependency).
 - **Zero-context assumption:** The plan must be executable by someone with no codebase knowledge.
@@ -30,12 +29,28 @@ Activate after runway-tech-design is approved. Input: tech spec (markdown or xue
 Read tech spec → Explore codebase → Map file structure → Write plan (with waves + dependencies) → Self-review → return control to runway orchestrator with plan path
 ```
 
+## Step 0: Load Role Context
+
+Read the `role` field from the checkpoint (default: `"backend"`):
+
+```bash
+ROLE=$(jq -r '.role // "backend"' .runway/checkpoint-*.json 2>/dev/null | head -1)
+SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway-task-planning}"
+SKILL_ROOT="${SKILL_ROOT:-$HOME/.claude/skills/runway-task-planning}"
+ROLE_FILE="${SKILL_ROOT}/roles/${ROLE}.md"
+```
+
+If `ROLE_FILE` exists, read it and inject its contents as task planning focus context for all subsequent steps. The role file defines module boundaries, wave dependency patterns, and known pitfalls specific to this project type (backend vs frontend).
+
+If `ROLE_FILE` does not exist, continue with default backend behavior.
+
 ## Step 0.5: Load Pitfall Warnings
 
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-KNOWLEDGE_S3=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 3 --format prompt 2>/dev/null || echo "")
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+KNOWLEDGE_S3=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PROJECT_ROOT" --inject-into-stage 3 --format prompt 2>/dev/null || echo "")
 ```
 
 如果 `KNOWLEDGE_S3` 非空（包含 `<known-pitfalls>` 块），在 Step 3（Write the Plan）时：
@@ -43,50 +58,20 @@ KNOWLEDGE_S3=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-s
 - 如果可能触发，在对应任务的 Task Block 中加 `**Known Risk:**` 字段，引用 pitfall 摘要
 - 如果 pitfall 要求额外任务（如"必须专门写 Converter 任务"），主动加入任务列表
 
-## Step 1: Read Tech Spec
+## Step 1: Read Spec Context
 
-If xuecheng link provided:
+Read `spec_context_path` from checkpoint:
+
 ```bash
-oa-skills citadel getMarkdown --contentId <id> --mis <mis>
+SPEC_CONTEXT_PATH=$(jq -r '.spec_context_path // empty' .runway/checkpoint-*.json 2>/dev/null | head -1)
 ```
 
-Extract: design constraints, interface contracts, module boundaries, rollout/risk constraints, and open decisions that affect implementation sequencing.
+Read the local file at `$SPEC_CONTEXT_PATH`. Extract from its three sections:
+- **接口设计** → 每个接口映射到至少一个实现任务；跨模块字段传递优先按 contract-first 顺序拆分
+- **业务规则** → 每条规则映射到参数校验/错误码任务或已有任务的测试步骤
+- **需求描述** → 理解业务意图，辅助代码库探索时找参照实现
 
-Do not treat the tech spec as file-level implementation truth.
-
-If an ADR is provided, read it for decision rationale and non-negotiable constraints.
-
-Then convert the approved Stage 2 formal sections into explicit planning coverage instead of relying on implicit understanding alone:
-- `二、详细设计` → 每个模块至少映射到一个任务或显式写明无需单独任务的原因
-- `三、接口协议变更` → 每个接口 / API / 事件 / 数据契约变化至少映射到一个任务；若存在跨模块契约变化，优先按 contract-first 顺序拆分
-- `四、基础设施设计` → 每个“涉及”的配置 / 存储 / 消息 / 定时任务 / 外部依赖项，必须归类为任务、前置条件，或显式写“不需要任务 — 原因”
-- `五、验证策略` → 每个关键风险必须映射到任务内测试步骤或 Wave integration verification
-- `六、待决策项` → 每项必须归类为：已解决 / Wave 0 前置 / blocker / 风险接受
-
-Keep Stage 2 and Stage 3 boundaries intact: do not add a new Stage 2 handoff chapter, and do not turn the tech spec into an execution plan.
-
-### Step 1.5: Extract AC Table and Generate TC List
-
-If the requirements spec contains an AC table (columns: AC编号, Given, When, Then, 覆盖需求, 优先级), extract it and generate a TC list before writing any tasks.
-
-For each AC row, generate one or more TC entries:
-- TC编号 format: `TC-{AC编号}-{a/b/c…}` (e.g. AC-01 → TC-01-a, TC-01-b)
-- Inherit Given/When/Then from the AC; supplement with concrete input values and assertion fields from the tech spec interface contracts
-- Inherit priority from the AC (P0/P1)
-- Assign each TC to the most relevant task
-
-Write the TC list to `.runway/tmp/tc-list.md` before proceeding to Step 2:
-
-```markdown
-# TC List
-
-| TC编号   | AC编号 | Given              | When               | Then（断言条件）        | 优先级 | 归属任务 |
-|---------|--------|--------------------|--------------------|----------------------|--------|--------|
-| TC-01-a | AC-01  | {具体前置条件}       | {具体调用/操作}      | {具体可断言的结果}      | P0     | Task 1 |
-| TC-01-b | AC-01  | {边界/异常前置条件}  | {具体调用/操作}      | {降级/异常结果}         | P0     | Task 1 |
-```
-
-If no AC table exists in the requirements spec, skip this step and proceed to Step 2 without TC list generation. Do not invent ACs.
+Do not treat spec_context as file-level implementation truth. Focus on what needs to change, not how exactly.
 
 ## Step 2: Explore Codebase
 
@@ -167,27 +152,12 @@ If in doubt, split into separate waves. Parallelism is optional; conflict-free e
 **Wave:** {N} — parallel with Task {N}.{X}
 **Conflict Guard:** `No same-wave overlap with {files/interfaces}`
 
-- [ ] Step 1: Write failing test
-  ```{lang}
-  {complete test code — no placeholders}
-  ```
-  Run: `{exact command}`
-  Expected: FAIL — `{exact failure message}`
-
-- [ ] Step 2: Verify test fails
-  Run: `{exact command}`
-  Confirm: `{failure keyword}`
-
-- [ ] Step 3: Implement
+- [ ] Step 1: Implement
   ```{lang}
   {complete implementation — no placeholders}
   ```
 
-- [ ] Step 4: Verify test passes
-  Run: `{exact command}`
-  Expected: PASS
-
-- [ ] Step 5: Commit
+- [ ] Step 2: Commit
   ```bash
   git add {file list}
   git commit -m "{type}: {description}"
@@ -224,6 +194,20 @@ See `references/dependency-verification.md` for the detection pattern and fix pr
 ## Step 5: Save and Return Plan
 
 Save plan to: `.runway/plans/{YYYY-MM-DD}-{feature}.md`
+
+在计划文档末尾追加「接口清单提纲」章节（供参考，Step 2c runway-tclist 将生成详细 HTTP 测试用例）：
+
+```markdown
+## 接口清单提纲（供参考）
+
+本次涉及接口（PATH 来自技术方案 Step 4.5 完整化后）：
+
+| HTTP 方法 | PATH | 描述 |
+|----------|------|------|
+| POST | /api/xxx/yyy | 接口功能描述 |
+
+> 接口 HTTP 测试用例（TC- 编号）由 Step 2c runway-tclist 生成。
+```
 
 Present the wave summary and the saved plan path in a compact handoff block:
 > "Plan ready: {N} waves, {M} tasks total.

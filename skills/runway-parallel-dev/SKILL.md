@@ -1,12 +1,12 @@
 ---
 name: runway-parallel-dev
-description: Executes an implementation plan by dispatching isolated subagents per task with TDD enforcement and two-phase review (spec compliance + code quality). Waves run in parallel; waves are serial. Invoke this skill whenever the user wants to "start development", "execute the plan", "开始开发", "并行开发", or after runway-task-planning produces a plan. Also trigger when the user says "implement the tasks" or "run the plan". Do NOT implement tasks manually — always use this skill to ensure TDD and TC coverage are enforced per task.
+description: Executes an implementation plan by dispatching isolated subagents per task with two-phase review (spec compliance + code quality). Waves run in parallel; waves are serial. Invoke this skill whenever the user wants to "start development", "execute the plan", "开始开发", "并行开发", or after runway-task-planning produces a plan. Also trigger when the user says "implement the tasks" or "run the plan". Do NOT implement tasks manually — always use this skill to ensure spec compliance and code quality are enforced per task.
 version: 0.1.0
 ---
 
 # Parallel Dev
 
-Execute the implementation plan from runway-task-planning. Dispatch one fresh subagent per task, enforce TDD, run two-phase review per task. Tasks within the same wave run concurrently; waves are serial.
+Execute the implementation plan from runway-task-planning. Dispatch one fresh subagent per task, run two-phase review per task. Tasks within the same wave run concurrently; waves are serial.
 
 ## When to Use
 
@@ -15,7 +15,6 @@ Activate after runway-task-planning saves the implementation plan and auto-advan
 ## Core Rules
 
 - **Context isolation:** Each subagent receives a self-contained task package. No shared session history.
-- **TDD enforced:** Subagent must write a failing test before any implementation code and must show failure/pass evidence.
 - **Two-phase review per task:** spec compliance check → code quality check.
 - **Wave parallelism:** Tasks in the same wave are dispatched concurrently. Next wave starts only after current wave completes.
 - **Wave conflict safety:** If same-wave tasks unexpectedly touch the same primary file or changed shared interface, stop and repair the plan before continuing.
@@ -35,6 +34,21 @@ Wave complete → next wave
 All waves done → execution report produced → return control to orchestrator
 ```
 
+## Step 0: Load Role Context
+
+Read the `role` field from the checkpoint (default: `"backend"`):
+
+```bash
+ROLE=$(jq -r '.role // "backend"' .runway/checkpoint-*.json 2>/dev/null | head -1)
+SKILL_ROOT="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway-parallel-dev}"
+SKILL_ROOT="${SKILL_ROOT:-$HOME/.claude/skills/runway-parallel-dev}"
+ROLE_FILE="${SKILL_ROOT}/roles/${ROLE}.md"
+```
+
+If `ROLE_FILE` exists, read it and inject its contents as development constraints for all subagent dispatches. The role file defines implementation validation standards and Phase 2 review focus specific to this project type (backend vs frontend).
+
+If `ROLE_FILE` does not exist, continue with default backend behavior.
+
 ## Step 1: Read Plan and Create Tracker
 
 **Before reading the plan, ensure the pipeline loop state is active (standalone path creates it; orchestrated path reuses the existing one):**
@@ -43,7 +57,7 @@ All waves done → execution report produced → return control to orchestrator
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 node "$RUNWAY_TOOLS" loop-init \
-  --root "$PWD" \
+  --root "$PROJECT_ROOT" \
   --stage 5 \
   --session-id "${CLAUDE_SESSION_ID:-$(date +%s%N)}" \
   --started-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -73,7 +87,8 @@ See `references/dependency-verification.md` (Wave Conflict Detection section) fo
 ```bash
 RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runway-tools.cjs}"
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
-KNOWLEDGE_S5=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PWD" --inject-into-stage 5 --format prompt 2>/dev/null || echo "")
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")
+KNOWLEDGE_S5=$(node "$RUNWAY_TOOLS" knowledge-read --root "$PROJECT_ROOT" --inject-into-stage 5 --format prompt 2>/dev/null || echo "")
 ```
 
 如果 `KNOWLEDGE_S5` 非空，在派发每个 implementer subagent 时将其注入到 prompt 的 `## Known Project Pitfalls` 字段（见 `references/implementer-prompt.md`）。
@@ -87,7 +102,6 @@ Key fields to fill:
 - `{Context}` — wave number, what previous waves completed, architectural context
 - `{Relevant files}` — content of files the task touches or depends on
 - `{directory}` — working directory
-- `{expected failing output}` — what the initial red phase should prove
 - `{KNOWLEDGE_S5}` — known project pitfalls (omit this field if empty)
 
 ### Model Selection
@@ -102,7 +116,7 @@ Key fields to fill:
 
 | State | Required report fields | Action |
 |-------|------------------------|--------|
-| DONE | changed files, failing-test evidence, passing-test evidence, commit SHA | Proceed to two-phase review |
+| DONE | changed files, commit SHA | Proceed to two-phase review |
 | DONE_WITH_CONCERNS | DONE fields + explicit concerns and impacted files | Proceed to review; flag concerns for reviewer and handoff report |
 | NEEDS_CONTEXT | exact missing context, why it is required, what was already tried | Supply missing context, re-dispatch. Max 2 retries, then BLOCKED. |
 | BLOCKED | blocker, attempted probes, dependency impact, recommended next step | Record the blocker, continue other runnable tasks in the wave, and only pause Stage 5 later if Step 4's allowed conditions are met |
@@ -127,7 +141,7 @@ RUNWAY_TOOLS="${CLAUDE_PLUGIN_ROOT:+${CLAUDE_PLUGIN_ROOT}/skills/runway/bin/runw
 RUNWAY_TOOLS="${RUNWAY_TOOLS:-$HOME/.claude/skills/runway/bin/runway-tools.cjs}"
 ONES_ID=$(jq -r '.ones_work_item_id' .runway/checkpoint-*.json 2>/dev/null | head -1)
 node "$RUNWAY_TOOLS" knowledge-append \
-  --root "$PWD" \
+  --root "$PROJECT_ROOT" \
   --ones-id "${ONES_ID:-unknown}" \
   --entries '[{
     "type": "pitfall",
@@ -152,13 +166,11 @@ A task is **done** only after BOTH phases complete without remaining Critical is
 
 Dispatch a spec-reviewer subagent. Provide:
 - Full text of the task requirements (copy from plan)
-- Implementer's report: status, changed files, commit SHA, TDD evidence (failing output + passing output)
+- Implementer's report: status, changed files, commit SHA
 - `task-start-sha` — commit before this task began (`git rev-parse HEAD` before dispatch)
 
 **What to check:**
 - Every step in the task checklist has a corresponding commit change
-- Failing test was written and shown to fail before implementation
-- Passing test evidence matches the task's expected output
 - No task step was silently skipped or substituted
 
 Returns: `✅ COMPLIANT` or `❌ NON_COMPLIANT: {item} at {file:line}`.
@@ -226,9 +238,12 @@ When a task reaches `⏸️ BLOCKED` state, use this table to decide the immedia
 2. Integration verification FAILS — show the failure and ask how to proceed
 3. Round 5 of fix attempts reached for a Critical issue
 
-Before pausing, deactivate the pipeline state so the Stop hook does not re-inject a continuation prompt:
+**⚠️ NEVER deactivate the pipeline loop while waiting for background subagents to complete.**
+Waiting for subagent notifications is NOT a pause condition. When the stop hook fires while subagents are in-flight, simply respond "Subagents still running, waiting for completion notifications" and end the turn — do NOT call `state-update --active false`. The loop must stay active so subsequent stages auto-advance after subagents finish.
+
+Only deactivate immediately before entering a true user-input pause:
 ```bash
-node "$RUNWAY_TOOLS" state-update --root "$PWD" --name pipeline.local.md --active false
+node "$RUNWAY_TOOLS" state-update --root "$PROJECT_ROOT" --name pipeline.local.md --active false
 ```
 
 If a blocked task is an explicit dependency of the next wave, stop and ask the user how to resolve it.
@@ -259,9 +274,6 @@ If same-wave conflicts are discovered at runtime (not caught in Step 1), stop th
 
 ## Blocked Tasks (need human input)
 {task, blocker reason, dependency impact}
-
-## Test Evidence Summary
-{task → failing output proof → passing output proof}
 
 ## Commit Log
 {git log --oneline {base}..HEAD}
@@ -294,7 +306,7 @@ if [[ -n "$ONES_ID" ]]; then
 {EXECUTION_REPORT_CONTENT}
 EOF
   node "$RUNWAY_TOOLS" report-write \
-    --root "$PWD" \
+    --root "$PROJECT_ROOT" \
     --ones-id "$ONES_ID" \
     --report execution_report \
     --content-file .runway/tmp/execution-report.md
@@ -312,5 +324,4 @@ All waves complete. Execution report produced. Return control to the calling orc
 - **`references/code-quality-reviewer-prompt.md`** — Full prompt template for code quality reviewer
 - **`references/subagent-prompt-guide.md`** — Tips for writing effective isolated task packages
 - **`references/review-criteria.md`** — Detailed spec compliance and code quality criteria
-- **`references/tdd-enforcement.md`** — TDD iron rule, common rationalizations, violation handling
 - **`references/dependency-verification.md`** — Wave conflict detection and fix patterns (shared with runway-task-planning)

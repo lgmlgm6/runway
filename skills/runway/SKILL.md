@@ -29,6 +29,10 @@ End-to-end development pipeline. Takes a xuecheng PRD link and a ones work item 
 
 ## How to Start
 
+### Stage 0-dep: 依赖检测与安装（最优先执行）
+
+**⚠️ Skill 被触发后第一步即执行，在任何初始化步骤之前。** Phase A 全量检测并安装美团内部 CLI 工具（mtskills / citadel / ee-ones / ee-cargo / ee-talos / tmux）；Phase B 检测并安装项目构建依赖（Maven / npm）。安装成功静默继续；失败暂停上报用户。checkpoint `dependency_check_status=ok` 时跳过（restore 幂等）。完整执行规范见 `references/stage-dep.md`。
+
 ### Step 0: Load Project Memory and Check Checkpoint
 
 **⚠️ 强制要求：在执行任何 Step 0 子步骤之前，必须先完整读取 `references/stage-init.md` 全文。未读取该文件不得执行初始化流程。每个子步骤的完整规则、字段定义、跳过条件均在该文件中，SKILL.md 中的描述仅为摘要。**

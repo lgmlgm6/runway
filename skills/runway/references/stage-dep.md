@@ -32,7 +32,7 @@ fi
 # 注：mtskills list 通过 pager 输出，grep -q 会导致 pager 提前退出丢失数据
 # 用变量缓存输出后再匹配
 MTSKILLS_LIST=$(mtskills list 2>/dev/null)
-for skill in citadel ee-ones ee-cargo ee-talos; do
+for skill in citadel ee-ones ee-cargo ee-talos mtcurl; do
   if [ -z "$(echo "$MTSKILLS_LIST" | grep "${skill}")" ]; then
     echo "📦 安装 ${skill}..."
     mtskills i ${skill} 2>&1 | tee .runway/tmp/dep-install-${skill}.txt; echo "EXIT:$?"
@@ -163,6 +163,7 @@ node "$RUNWAY_TOOLS" checkpoint-write \
 - ee-ones：{就绪 / 已安装}
 - ee-cargo：{就绪 / 已安装}
 - ee-talos：{就绪 / 已安装}
+- mtcurl：{就绪 / 已安装}
 - tmux：{就绪 / 已安装}
 - Maven：{就绪（预检通过）/ 已安装 / 跳过}
 - npm：{就绪（预检通过）/ 已安装 / 跳过}
